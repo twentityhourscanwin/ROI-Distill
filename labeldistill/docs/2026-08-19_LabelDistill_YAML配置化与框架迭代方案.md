@@ -3,6 +3,7 @@
 > 日期：2026-08-19  
 > 当前迭代基线：`labeldistill/exps/nuscenes/ablation_param/param_J4_wl05_wh08.py`  
 > 说明：当前文件名包含 `wh08`，但实际配置是 `w_h=0.7`。后续 YAML 应按真实参数命名为 `j4_wl05_wh07`，旧名称只作为兼容别名保留。
+> 实施分支：`codex/yaml-builder`；迁移前基线：`74cfe3f`；首版实现：`c3548b4`。
 
 > 实施状态（2026-08-19）：配置基础设施和 J4 builder 首版已经落地，包括 typed schema、`_base_` 继承、dot-list override、跨字段校验、派生参数、config diff、resolved config、环境/源码 SHA256 审计、versioned Python preset、通用 J4 experiment 以及 `tools/train.py`。`j4_wl05_wh07` 与 `j4_wl05_wh08` 已有 YAML。当前测试为 74 passed（因整套 pytest 在 DSW 上偶发长时间无输出，按 53 + 21 两组执行验证）。
 >
@@ -43,6 +44,23 @@ J4 baseline 已完成以下接口重构，可作为 YAML 化的稳定起点：
 - 学生 decode 能力继续保留用于推理；J4 训练阶段不执行未使用的学生 NMS。
 
 因此，YAML 化不需要同时重写核心算法，只需要把当前有效配置提取出来并通过统一 builder 构造相同对象。
+
+本轮新增的实际执行链为：
+
+```text
+tools/train.py
+  -> config/loader.py + validation.py
+  -> presets/j4.py
+  -> builders/experiment_builder.py
+  -> experiments/j4.py
+  -> builders/trainer_builder.py
+  -> Lightning Trainer.fit(...)
+```
+
+同时修复了真实训练 smoke test 暴露的两个数据/设备契约问题：
+
+- BEV mask 的高级索引改为设备内 torch 索引和显式 broadcast，兼容当前 PPU runtime。
+- 空 GT box 固定为 `[0, 9]`，不再在无目标样本上退化为 `[0]`。
 
 ## 3. 设计原则
 
@@ -112,7 +130,7 @@ region:
 
 校验失败时直接终止，不使用静默默认值继续训练。
 
-## 4. 推荐目录
+## 4. 当前目录与职责
 
 ```text
 ROI_LABEL_DISTILL/
@@ -131,24 +149,29 @@ ROI_LABEL_DISTILL/
 
   labeldistill/
     config/
+      audit.py
       loader.py
       schema.py
       validation.py
 
     builders/
       experiment_builder.py
-      student_builder.py
-      teacher_builder.py
-      distillation_builder.py
+      trainer_builder.py
+
+    experiments/
+      j4.py
+
+    presets/
+      j4.py
 
   tools/
+    resolve_config.py
     train.py
-    evaluate.py
 ```
 
-旧的 `labeldistill/exps/nuscenes/.../*.py` 在迁移完成前保留为 legacy entry，不立即删除。
+`presets/j4.py` 保存 J4 的版本化低层网络构造细节；`experiments/j4.py` 保存通用训练行为；builder 只负责把已校验配置组装为对象。旧的 `labeldistill/exps/nuscenes/.../*.py` 在数值等价性验收完成前保留为 legacy entry，不立即删除。`tools/evaluate.py` 尚未实现，不能在文档中作为可用入口引用。
 
-## 5. 推荐技术方案
+## 5. 已采用的技术方案
 
 当前环境已经安装：
 
@@ -156,14 +179,14 @@ ROI_LABEL_DISTILL/
 - OmegaConf 2.3.0
 - Hydra 1.3.2
 
-第一阶段建议使用 **OmegaConf + argparse**，暂不直接接管为完整 Hydra 应用，原因是：
+当前首版使用 **OmegaConf + argparse**，未直接接管为完整 Hydra 应用，原因是：
 
 - 可以支持 YAML merge、dot-list 命令行覆盖和 resolved YAML 输出。
 - 对现有 `run_cli` 和 PyTorch Lightning 启动方式改动较小。
 - 不引入 Hydra working directory、launcher 和 sweep 行为带来的额外迁移复杂度。
 - 以后需要批量 sweep 时仍可在相同 YAML schema 上接入 Hydra。
 
-建议配置加载流程：
+当前配置加载流程：
 
 ```text
 读取 base YAML
@@ -176,130 +199,43 @@ ROI_LABEL_DISTILL/
   -> builder 构造训练对象
 ```
 
-## 6. J4 baseline YAML 草案
+## 6. J4 baseline 的实际配置边界
+
+J4 baseline 已拆成四个公共 base YAML 和一个实验 YAML：
 
 ```yaml
-schema_version: 1
+# configs/experiments/j4_wl05_wh07.yaml
+_base_:
+  - ../base/nuscenes.yaml
+  - ../base/student_r50_128x128.yaml
+  - ../base/teacher_centerpoint_vox01.yaml
+  - ../base/distillation_roi_v3.yaml
 
 experiment:
   name: j4_wl05_wh07
   seed: 0
-  description: >-
-    R50 128x128 LiDAR distillation baseline with structured proposals and
-    quality-aware ROI mask.
+  legacy_aliases: [param_J4_wl05_wh08]
 
 runtime:
   gpus: 2
   num_nodes: 1
-  distributed_backend: gloo  # 当前 DSW PPU；NVIDIA 环境可 override 为 nccl
+  distributed_backend: gloo
   batch_size_per_device: 16
+  accumulate_grad_batches: 1
   max_epochs: 24
-  precision: 16
+  precision: "16"
   gradient_clip_val: 35.0
+  deterministic: true
   output_dir: outputs/j4_wl05_wh07
   resume_from: null
 
-data:
-  dataset: nuscenes
-  root: data/nuScenes
-  train_info: nuscenes_infos_train.pkl
-  val_info: nuscenes_infos_val.pkl
-  use_train_val: false
-  num_workers: 4
-  use_cbgs: false
-  key_idxes: [-2, -4, -6, -8]
-  return_depth: true
-  return_lidar: true
+ema:
+  enabled: true
 
-geometry:
-  point_cloud_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
-  lidar_voxel_size: [0.1, 0.1, 0.2]
-  lidar_out_size_factor: 8
-  student_bev_resolution: 0.8
-  feature_map_size: [128, 128]
-
-classes:
-  names:
-    - car
-    - truck
-    - construction_vehicle
-    - bus
-    - trailer
-    - barrier
-    - motorcycle
-    - bicycle
-    - pedestrian
-    - traffic_cone
-
-  tasks:
-    - [car]
-    - [truck, construction_vehicle]
-    - [bus, trailer]
-    - [barrier]
-    - [motorcycle, bicycle]
-    - [pedestrian, traffic_cone]
-
-student:
-  type: camera_bevdepth_r50
-  output_channels: 150
-  key_frame_count: 5
-  temporal_kd_selection: legacy_half
-  structured_output: true
-
-teacher:
-  type: frozen_centerpoint
-  checkpoint: ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth
-  checkpoint_prefix: model.centerpoint.
-
-  proposal:
-    score_threshold: 0.1
-    max_num_before_nms: 500
-    nms_type: circle
-    min_radius: [4, 12, 10, 1, 0.85, 0.175]
-    post_max_size: 83
-    norm_bbox: true
-
-matching:
-  type: center_distance
-  class_policy: same_task_group
-  structured: true
-  selection: highest_score
-  one_to_one: false
-
-  distance_thresholds:
-    car:                  {high: 2.0, medium: 4.0}
-    truck:                {high: 2.5, medium: 4.0}
-    construction_vehicle: {high: 2.5, medium: 4.0}
-    bus:                  {high: 3.5, medium: 4.0}
-    trailer:              {high: 2.5, medium: 4.0}
-    barrier:              {high: 0.5, medium: 2.5}
-    motorcycle:           {high: 1.0, medium: 2.5}
-    bicycle:              {high: 1.0, medium: 2.5}
-    pedestrian:           {high: 0.5, medium: 2.0}
-    traffic_cone:         {high: 0.5, medium: 2.0}
-
-region:
-  scaler:
-    type: adaptive_gt_scaler_v3
-    enabled: true
-    mu: 0.15
-    velocity_scale: 0.2
-    max_distance: 50.0
-
-  mask:
-    type: quality_aware_mask_v3
-    w_low: 0.5
-    w_high: 0.7
-    max_distance: 50.0
-    boost_small_medium: true
-    gaussian_overlap: 0.1
-    min_radius: 2
-
-loss:
-  detection_weight: 1.0
-  depth_weight: 1.0
-  feature_weight: 0.6
-  response_weight: 1.0
+checkpoint:
+  save_top_k: 3
+  save_last: true
+  every_n_epochs: 1
 
 optimizer:
   type: AdamW
@@ -312,7 +248,54 @@ scheduler:
   milestones: [19, 23]
 ```
 
-注意：以上 YAML 必须以当前 J4 源码为准逐字段迁移。`temporal_kd_selection`、LR 和数据 split 不应根据文件名或历史文档猜测。
+公共 YAML 分工如下：
+
+| 文件 | 负责内容 |
+| --- | --- |
+| `configs/base/nuscenes.yaml` | 数据路径/split、时序帧索引、物理几何、类别和 task groups |
+| `configs/base/student_r50_128x128.yaml` | student 类型、输出通道、时序 KD 选择 |
+| `configs/base/teacher_centerpoint_vox01.yaml` | teacher checkpoint、checkpoint prefix、proposal decode/NMS |
+| `configs/base/distillation_roi_v3.yaml` | feature KD 通道、matching、scaler、mask 和 loss 权重 |
+| `configs/experiments/j4_wl05_wh07.yaml` | 实验身份、runtime、EMA、checkpoint、optimizer 和 scheduler |
+
+### 6.1 保留在 Python preset 中的硬编码
+
+以下内容属于实现契约或网络拓扑，不开放为普通实验参数：
+
+- J4 的 backbone、neck、depth head、BEV head 和 CenterPoint teacher 的低层 topology。
+- tensor 维度约定、box code layout、structured result dataclass 和 batch 字段顺序。
+- 当前 J4 preset 的 feature adaptor 拓扑，以及 `[128, 256]` 的精确通道契约。
+- 五帧时序实现约束和 `legacy_half` 的具体张量选择算法。
+- decode、matching、scaling、mask 的数学实现；YAML 只能选择已注册且已验证的算法。
+- 当前只实现的 optimizer、scheduler、dataset、student/teacher 类型白名单。
+
+这些值集中在 `labeldistill/presets/j4.py` 或对应算法实现中，并将源码 SHA256 写入审计文件。若未来需要开放，应先新增 registry 分支、schema 校验和 contract test，不能只添加一个无消费者的 YAML 字段。
+
+### 6.2 由 YAML 控制的参数
+
+以下内容是实验变量或运行变量，必须通过 YAML/override 控制：
+
+- 数据 root、info 文件、split、workers、CBGS 和历史帧索引。
+- point cloud range、LiDAR voxel size、BEV output stride、类别和 task groups。
+- student/teacher 类型、teacher checkpoint/prefix、proposal 阈值和 NMS 参数。
+- matching class policy、selection、逐类别距离阈值和 `one_to_one` 开关。
+- scaler/mask 类型与参数、四项 loss 权重、feature KD 通道声明。
+- GPU/节点数、分布式 backend、batch、梯度累积、epoch、precision、梯度裁剪和随机性。
+- EMA/checkpoint、optimizer、scheduler、输出目录和 resume checkpoint。
+
+### 6.3 只读派生参数
+
+以下值由 validator 计算，禁止出现在普通源 YAML 或命令行 override 中：
+
+- `derived.global_batch_size`
+- `derived.effective_learning_rate`
+- `derived.key_frame_count`
+- `derived.feature_map_size`
+- `derived.bev_cell_size`
+- `derived.student_bev_input_channels`
+- `derived.teacher_checkpoint_sha256`
+
+标准输出目录中的 `resolved_config.yaml` 可以包含这些字段，用于审计和恢复。加载时程序会先移除保存值、重新计算并校验；派生值不参与控制执行。完整逐字段消费者关系见 `labeldistill/docs/config_effectiveness_matrix.md`。
 
 ## 7. 消融配置方式
 
@@ -365,7 +348,7 @@ Config diff from j4_wl05_wh07:
 
 ## 8. 统一启动接口
 
-目标启动方式：
+当前正式启动方式：
 
 ```bash
 cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL
@@ -382,6 +365,22 @@ python tools/train.py \
   runtime.gpus=16 \
   runtime.batch_size_per_device=4 \
   runtime.output_dir=outputs/j4_wl05_wh07_16gpu
+```
+
+NVIDIA 环境需要显式切换分布式 backend：
+
+```bash
+python tools/train.py \
+  --config configs/experiments/j4_wl05_wh07.yaml \
+  runtime.distributed_backend=nccl
+```
+
+只解析、校验并查看最终配置：
+
+```bash
+python tools/resolve_config.py \
+  --config configs/experiments/j4_wl05_wh07.yaml \
+  --no-write
 ```
 
 继续训练：
@@ -419,18 +418,17 @@ outputs/j4_wl05_wh07/
 - Python、PyTorch、CUDA、MMEngine、MMDetection3D 版本
 - train/val/trainval 数据 split
 
-checkpoint 内部保存 `schema_version` 和 resolved config。加载时如果 schema 不兼容，应明确报错或执行显式迁移，不静默采用新默认值。
+checkpoint 内部已经保存 `labeldistill_schema_version` 和 `labeldistill_resolved_config`。加载时如果 schema 不兼容，应明确报错或执行显式迁移，不静默采用新默认值。
 
 ## 10. Python builder 的职责
 
-推荐统一入口：
+当前统一入口：
 
 ```python
-config = load_and_resolve_config(path, overrides)
-validate_config(config)
-experiment = build_experiment(config)
-trainer = build_trainer(config.runtime)
-trainer.fit(experiment, ckpt_path=config.runtime.resume_from)
+bundle = load_and_resolve_config(path, overrides, project_root=project_root)
+experiment = build_experiment(bundle)
+trainer = build_trainer(bundle.config, experiment)
+trainer.fit(experiment, ckpt_path=bundle.config.runtime.resume_from)
 ```
 
 builder 负责：
@@ -443,7 +441,7 @@ builder 负责：
 - 根据 `loss` 构造 loss 权重。
 - 根据 `optimizer/scheduler` 构造优化器。
 
-实验 YAML 不再继承一个包含完整 `training_step` 的 Python 子类。
+实验 YAML 不再继承一个包含完整 `training_step` 的 Python 子类。当前 J4 通用训练行为位于 `labeldistill/experiments/j4.py`，低层拓扑位于 versioned `labeldistill/presets/j4.py`。
 
 ## 11. 迁移步骤
 
@@ -464,7 +462,7 @@ builder 负责：
 2. 新增 `_base_` 合并与 dot-list override。
 3. 新增 schema 和 validation。
 4. 新增 resolved config 保存与 config diff。
-5. 暂不改变模型和 loss 实现。
+5. 基础设施阶段不改变模型和 loss 数学实现。
 
 当前实现还额外记录：global batch size、effective learning rate、feature map size、BEV cell size、student BEV 输入通道、teacher checkpoint SHA256、配置继承链和关键源码 SHA256。
 
@@ -472,11 +470,11 @@ builder 负责：
 
 当前状态：**builder 接管首版已完成，数值等价性验收进行中**。J4 YAML 已能通过 `tools/train.py` 构造通用 `J4Experiment`，不再依赖 legacy J4 class；preset 与 legacy 的 backbone/head/teacher/proposal 配置已做完整对象级 parity。单卡、双卡 DDP、checkpoint 保存和 resume 已通过，尚缺 legacy/new 同 batch 数值快照。
 
-1. 将 J4 的全部有效参数逐项迁移到 YAML。
-2. 通过 builder 构造与旧 J4 相同的模型和训练组件。
-3. 比较参数数量、模型 state_dict key、proposal、mask 和 loss。
-4. 通过单卡短程 smoke test。
-5. 通过多卡 DDP smoke test。
+1. **已完成**：将 J4 的全部有效实验参数逐项迁移到 YAML。
+2. **已完成**：通过 builder 构造与旧 J4 相同的模型和训练组件。
+3. **部分完成**：参数数量和完整配置对象已对齐；proposal、mask 和 loss 的同 batch 数值快照待补。
+4. **已完成**：通过单卡短程 smoke test。
+5. **已完成**：通过双卡 DDP、checkpoint 和 resume smoke test。
 
 ### 阶段 D：迁移消融实验
 
@@ -537,10 +535,16 @@ YAML 化迁移不能只以“程序能启动”为标准。至少需要验证：
 
 2026-08-19 实测：当前 DSW 的两张 `PPU-ZW810E` 通过 Gloo 完成单步 DDP；该环境无 `libcuda.so`，因此 NCCL 不适用。单卡训练、双卡 checkpoint 保存以及恢复后 `global_step: 1 → 2` 均已通过。
 
-- `1 GPU × batch 1` 前向/反向 smoke test。
-- `2 GPU` DDP smoke test。
-- 目标卡数的启动与 checkpoint 保存验证。
-- resume 后 global step、optimizer 和 scheduler 连续。
+- **通过**：`1 GPU × batch 1 × 1 step` 前向、反向和 optimizer step。
+- **通过**：`2 PPU × batch 1/device × 1 step` Gloo DDP。
+- **通过**：checkpoint 包含 schema、resolved config、teacher SHA256、optimizer 和 scheduler 状态。
+- **通过**：从 `last.ckpt` 恢复后 `global_step: 1 → 2`，optimizer 和 scheduler 连续。
+- **待目标集群验证**：正式训练目标卡数、吞吐与长程稳定性；NVIDIA 环境使用 NCCL。
+
+本轮回归按两组执行，共 `74 passed`：
+
+- 算法、数据契约和 BEV mask：`53 passed`。
+- 配置系统、完整 legacy parity 和 builder：`21 passed`。
 
 ## 13. 不在第一阶段同时修改的内容
 
