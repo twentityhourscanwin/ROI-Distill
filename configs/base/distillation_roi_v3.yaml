@@ -1,0 +1,39 @@
+matching:
+  type: center_distance
+  class_policy: same_task_group
+  structured: true
+  selection: highest_score
+  one_to_one: false
+  distance_thresholds:
+    car:                  {high: 2.0, medium: 4.0}
+    truck:                {high: 2.5, medium: 4.0}
+    construction_vehicle: {high: 2.5, medium: 4.0}
+    bus:                  {high: 3.5, medium: 4.0}
+    trailer:              {high: 2.5, medium: 4.0}
+    barrier:              {high: 0.5, medium: 2.5}
+    motorcycle:           {high: 1.0, medium: 2.5}
+    bicycle:              {high: 1.0, medium: 2.5}
+    pedestrian:           {high: 0.5, medium: 2.0}
+    traffic_cone:         {high: 0.5, medium: 2.0}
+
+region:
+  scaler:
+    type: adaptive_gt_scaler_v3
+    enabled: true
+    mu: 0.15
+    velocity_scale: 0.2
+    max_distance: 50.0
+  mask:
+    type: quality_aware_mask_v3
+    w_low: 0.5
+    w_high: 0.7
+    max_distance: 50.0
+    boost_small_medium: true
+    gaussian_overlap: 0.1
+    min_radius: 2
+
+loss:
+  detection_weight: 1.0
+  depth_weight: 1.0
+  feature_weight: 0.6
+  response_weight: 1.0

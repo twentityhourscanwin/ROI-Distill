@@ -1,0 +1,674 @@
+\documentclass[12pt, UTF8]{ctexart}
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{threeparttable}
+\usepackage{float}  % 添加到导言区
+% 算法相关包 - 使用 algorithm2e
+\usepackage[ruled,linesnumbered]{algorithm2e}
+
+% 元数据定义
+\title{朝闻道}
+\author{蜉蝣求道只一瞬，竟怨一生太漫长}
+\date{\today}
+
+% algorithm2e 的全局设置
+\DontPrintSemicolon
+\SetKwComment{Comment}{//}{}
+
+\begin{document}
+\maketitle
+
+
+\begin{abstract}
+基于相机的三维目标检测近年来取得了显著进展，但由于缺乏显式几何信息，其性能仍明显落后于 LiDAR 方法。为弥补这一差距，研究者普遍采用跨模态蒸馏，引入 LiDAR 检测器的几何表征以增强相机 BEV 特征。现有跨模态蒸馏方法主要包括输出级蒸馏、特征级蒸馏和关系级蒸馏，其中由 BEVDistill~\cite{bevdistill} 提出的 \emph{GT-guided Feature Distillation} 已成为特征级蒸馏中的主流范式，其通过在 GT 区域内对齐师生 BEV 特征，实现几何信息向相机模型的迁移。
+
+然而，该范式隐含地假定 GT 所覆盖区域内的教师 BEV 特征均为可靠监督，且静态 GT 框能够准确反映教师前景特征的空间支持范围。这两项假设在真实场景中并不总是成立。一方面，LiDAR 的固有稀疏性导致远距离或小尺度目标在教师 BEV 特征中的表征并不完整，直接蒸馏可能引入不可靠监督；另一方面，高速运动目标的 LiDAR 时序采样会使点云在空间上产生拉伸，其实际覆盖范围可能超出 GT 框所描述的物理边界，导致基于静态 GT 定义的蒸馏区域与教师特征的真实分布产生偏差。此外，强制的全量特征对齐策略忽略了模态间的功能差异，限制了视觉模型语义表达能力的发挥。
+
+为此，我们提出 \emph{ROI-Guided Feature Distillation}，一种对 GT-guided 范式进行改进的质量感知特征级蒸馏策略。该方法基于教师 ROI 对 GT 覆盖区域内的 BEV 特征可靠性进行评估，并结合目标运动信息，对蒸馏区域及监督强度进行自适应调整，从而在引入几何信息的同时有效避免低质量监督。此外，我们采用部分特征蒸馏策略，在增强几何表征的同时保留学生模型的语义判别能力。基于 nuScenes 数据集的实验结果表明，该方法在 BEVDepth 上取得了显著性能提升。
+\end{abstract}
+
+\section{Introduction}
+三维目标检测是自动驾驶感知系统中的核心任务之一。由于能够直接感知精确的三维空间结构，LiDAR 检测器在该任务中长期保持领先性能。然而，LiDAR 传感器成本高、部署受限，在大规模应用场景中存在现实瓶颈。相比之下，基于相机的三维检测方案具有成本低、覆盖范围广以及语义信息丰富等优势，因此受到广泛关注。尽管近年来相机三维检测方法在深度估计、视角变换以及 BEV 表征建模等方面取得了持续进展，但由于缺乏显式几何观测，其整体性能仍明显落后于 LiDAR 方法。
+
+为缩小这一性能差距，跨模态蒸馏逐渐成为一种重要研究方向。该类方法通常利用 LiDAR 检测器作为教师模型，将其几何感知能力迁移至相机网络，尤其是在 BEV 表征层面进行监督。在已有工作中，特征级蒸馏因能够直接约束中间表示，被广泛应用于跨模态 BEV 学习。其中，由 BEVDistill~\cite{bevdistill} 提出的 \emph{GT-guided Feature Distillation} 建立了一种具有代表性的设计范式：以三维 GT 为引导，在其对应的 BEV 空间区域内对齐师生特征。此后，多项研究（如 LabelDistill~\cite{labeldistill}、DistillBEV~\cite{distillbev}）均沿用了这一思路，将 GT-guided 机制作为特征级跨模态蒸馏的基础框架。
+
+尽管 GT-guided Feature Distillation 在实践中取得了一定效果，但该范式隐含的若干关键假设在真实场景中并不总是成立。首先，GT 所覆盖的 BEV 空间区域并不必然对应高质量的教师 BEV 表征。LiDAR 点云具有天然稀疏性，其空间密度随距离的平方呈反比衰减~\cite{raanet,lidar_survey_2022}，远距离或小尺度目标往往仅包含有限点云，甚至出现局部缺失。在这种情况下，即使目标的三维 GT 是准确的，其对应区域内的教师 BEV 特征仍可能是不完整或噪声较大的。若在此类区域内对学生网络施加强制蒸馏约束，容易将不可靠的几何信息传递给学生模型，从而削弱蒸馏效果。
+
+更进一步地，GT-guided 范式通常默认静态 GT 所定义的空间区域能够准确描述教师前景特征的几何支持范围。然而，LiDAR 传感器并非在同一时刻完成全场景采样，而是在一个短时间窗口内逐步扫描环境。对于高速运动目标，这种时序采样会导致点云在空间上产生明显拉伸，其实际覆盖范围可能超出 GT 框所描述的物理边界，从而造成教师 BEV 特征与 GT 区域之间的空间不一致。在动态场景下，基于静态 GT 的蒸馏区域定义难以准确对齐教师特征的真实分布，进一步加剧了噪声监督问题。
+
+此外，GT-guided Feature Distillation 通常采用直接的特征对齐策略，隐含假设学生网络应尽可能逼近教师特征表示。然而，LiDAR 与相机在感知机制上存在本质差异：LiDAR 特征更擅长刻画精确的几何结构，而视觉特征在语义建模和外观判别方面具有天然优势。不加区分的全量模仿可能压制学生模型自身的语义表达能力，使其过度偏向几何一致性，从而限制跨模态互补性的发挥。
+
+基于上述分析，我们认为有效的跨模态 BEV 蒸馏应当满足两个关键原则：其一，蒸馏区域的空间定义应能够反映教师前景特征在真实场景中的几何支持范围，并具备对动态目标的自适应能力；其二，在引入几何信息的同时，应避免对学生模型施加过强的特征对齐约束，以保留相机模型固有的语义判别能力。为此，我们提出 \emph{ROI-Guided Feature Distillation}，一种针对 GT-guided 特征级蒸馏范式的质量感知改进框架。该方法基于教师 ROI 对 GT 覆盖区域内的 BEV 特征可靠性进行评估，并结合目标运动信息，对蒸馏区域进行自适应空间放缩，从而更准确地覆盖动态目标在 LiDAR 采样过程中的实际几何支持范围。同时，我们在蒸馏过程中引入选择性的特征约束，以在增强几何表征的同时保留学生模型的语义表达能力。
+
+综上所述，本文的主要贡献如下：
+\begin{itemize}
+    \item 我们提出了基于教师 ROI 的 GT 质量分类机制，依据中心距离将 GT 划分为高质量、中质量与未匹配三个等级，并据此为不同区域分配差异化的蒸馏权重，从而有效抑制不可靠监督。
+    \item 我们设计了自适应 GT 框放缩策略，针对三种匹配质量等级分别采用方向感知的单侧扩展、双侧对称扩展以及距离自适应缩放，并叠加速度补偿机制，使蒸馏区域能够更准确地覆盖动态目标在 LiDAR 时序采样过程中的实际几何支持范围。
+    \item 我们引入通道分割蒸馏策略，仅对学生 BEV 特征的部分通道施加跨模态约束，在增强几何表征的同时保留视觉分支固有的语义判别能力，充分利用模态互补性。
+    \item 在 nuScenes 数据集上的大量实验表明，所提出的方法在不同 backbone 设置下均取得一致且显著的性能提升，验证了 ROI 引导蒸馏策略的有效性。
+\end{itemize}
+
+
+
+\section{Related Work}
+\subsection{Camera-Based 3D Object Detection}
+
+基于摄像头的3D物体检测，由于其相对较低的成本和推理速度，在自动驾驶等领域得到了广泛应用。在这一领域，鸟瞰图（BEV） 作为一种统一的、以车辆为中心的场景表示形式，受到研究人员的普遍关注。它能够有效地整合来自不同视角的图像信息，并以一种空间一致的方式呈现，从而简化了后续的感知和规划任务
+
+早期的工作，如 BEVDet~\cite{bevdet}系列，借鉴了LSS\cite{philion2020lift}的思路，将二维图像的特征巧妙地转换为三维的BEV表示。在此基础上，BEVDepth~\cite{bevdepth} 引入了更精确的深度估计，并通过LiDAR点云对深度进行监督，进一步提升了3D物体检测的精度。BEVFormer~\cite{bevformer} 引入了一种基于Transformer~\cite{attention} 的架构，它通过可学习的 BEV 查询（BEV queries） 和强大的注意力机制，从多摄像头、多帧图像中聚合出丰富的时空特征，并将其转换为统一的 BEV 表示。这种方法摆脱了对精确深度估计的依赖，实现了从2D到3D表示的端到端学习，极大地提升了模型在复杂场景下的鲁棒性。
+
+除了上述方法，还有其他基于查询机制的先进模型。例如，DETR3D~\cite{detr3d} 系列 借鉴了DETR~\cite{deformable}的思路，引入了3D物体查询。在此基础上，相关研究进一步集成了3D参考点来聚合特征。后续的 StreamPETR~\cite{streampetr} 和 Sparse4D~\cite{sparse4d} 则引入了以物体为中心的时间建模范式，取得了显著的性能提升。
+
+\subsection{LiDAR-Based 3D Object Detection}
+在三维目标检测领域中，基于激光雷达（LiDAR）的方法因其能够提供精确的深度信息而备受关注。这类方法通常会首先将不规则的点云数据转换为规则的表示形式，以便于使用卷积神经网络进行特征提取，早期的代表性工作 VoxelNet~\cite{voxelnet} 首次提出了将点云体素化（voxelization）的方法，即把点云数据划分为三维的体素网格，并在每个体素内提取特征。随后，它通过三维卷积（3D convolutions）来处理这些体素，最终进行类别和边界框预测。尽管VoxelNet取得了开创性的成果，但是体素化之后的网络大部分都是空的体素块，其三维卷积操作计算量大、内存消耗高，极大地影响了推理速度。
+为了解决这一问题，SECOND~\cite{second} 利用稀疏三维卷积来提高计算效率。而后续PointPillars~\cite{pointpillars} 则采取了不同的策略，它将三维体素简化为二维的柱体（pillars），通过将高度维度压缩，巧妙地将三维问题转化为二维问题，从而避免了耗时的三维卷积，转而使用更高效的二维卷积，极大地提升了推理速度。与此同时，研究者们也开始探索无需预设锚点（anchor-free）的检测方法，以减少因锚点设置不当带来的性能损失。CenterPoint~\cite{centerpoint} 正是其中的一个杰出代表。它在 BEV 特征图上将三维物体视为二维空间中的一个点（即物体的中心点），并预测其中心点以及其他属性（如尺寸、朝向和速度）。这种无锚点的方法简化了后处理流程，并因其出色的性能和简洁的架构而迅速流行起来。
+
+\subsection{Knowledge Distillation}
+知识蒸馏（Knowledge Distillation）~\cite{hinton}最初由Hinton等人于2015年提出，其核心思想是一种强大的模型压缩技术。它的基本理念是构建一个“教师-学生”网络架构，将一个大型、高性能的教师网络所学到的复杂知识，有效地迁移到一个较小的、易于部署的学生网络中。由于其显著的有效性，知识蒸馏迅速被扩展到各类计算机视觉任务中，包括2D物体检测和语义分割等领域。
+近年来，知识蒸馏被引入到3D物体检测这一新兴且复杂的领域，尤其用于跨模态蒸馏提升单模态检测器的性能，以弥补其在某些场景下感知能力的不足。但是由于两种模式之间的显著差异，跨模式的知识提炼极具挑战性。与相机图像相比，LiDAR扫描本身就很稀疏，而且大部分3D空间都是空的。即使在被占用的空间中，背景(例如，建筑物和植被)占主导地位，同时，感兴趣的对象(例如，公共汽车和行人)具有很大程度的不同大小。因此，定位信息区域以使知识转移更加集中，并平衡分配给不同前景对象是非常重要的。此外，教师模型和学生模型是在各自的特定领域中分别开发的，导致了不同的网络架构,需要缓解跨模态差异。在这种背景下跨模态蒸馏大多是基于BEV来做的。
+DistillBEV~\cite{distillbev} 与UniDistill~\cite{unidistill} ： 这两项工作都将知识蒸馏的舞台转移到了鸟瞰图（BEV）。 DistillBEV根据标签数据集，对蒸馏区域划分为假阳性，真阳性，假阴性，真阴性，根据区域不同赋予不同的损失权重 ，将LiDAR特征的知识迁移到相机特征中。
+UniDistill 则考虑得更全面和深入，将所有检测器的特征投影到BEV空间，并支持LiDAR-to-camera、camera-to-LiDAR、fusion-to-LiDAR和fusion-to-camera等多种蒸馏路径，极大地扩展了应用范围。并且在蒸馏策略上采用了三种不同的策略，标签级别蒸馏，特征级别蒸馏，结构相似级别蒸馏。此外还有一些其他的创新性工作如labeldistill~\cite{labeldistill}和TiGDistill-BEV~\cite{tigdistillbev}，labeldistill则是考虑使用label guide的策略来缓解教师网络的噪声问题，TiGDistill-BEV专注于把教师网络的内部关于结构的知识迁移到学生网络，开创性地提出了针对前景物体内部相对深度做监督损失。
+\section{Preliminary}
+我们的工作是针对主流的跨模态特征级蒸馏策略 GT-guided Feature Distillation 的改进，另外我们提出的算法 ROI-Guided Feature Distillation 需要使用到来自教师网络生成的 ROI，所以我们需要简要介绍 GT-guided Feature Distillation 这一主流范式和教师网络（我们选择的是 CenterPoint）生成 ROI 的过程。
+
+
+
+
+\subsection{Teacher ROI Generation}
+
+教师网络首先通过骨干网络处理点云数据,提取多尺度的层级特征。这些特征随后由颈部模块(通常采用类FPN结构)进行融合和细化,该模块整合了不同尺度的信息，CenterHead模块接收来自颈部网络的多尺度特征图,执行基于中心点的目标检测。具体而言,对于每个空间维度为$H \times W$的特征图$F_i$,CenterHead预测三个关键组件:
+
+\begin{itemize}
+    \item \textbf{热力图(Heatmap)}: 概率图$\mathcal{H} \in \mathbb{R}^{H \times W \times C}$表示物体中心出现的可能性,其中$C$代表物体类别数。
+    \item \textbf{中心偏移(Center Offset)}: 二维偏移图$\mathcal{O} \in \mathbb{R}^{H \times W \times 2}$用于将离散的中心位置细化为连续坐标,补偿特征图步长引入的量化误差。
+    \item \textbf{物体属性(Object Properties)}: 额外的回归头预测每个中心位置的物体特定属性,包括三维尺寸$(l, w, h)$、朝向角$\theta$以及速度$(v_x, v_y)$。
+\end{itemize}
+
+最终的ROI建议框通过以下步骤生成:
+
+\begin{enumerate}
+    \item \textbf{中心点提取}: 对预测的热力图$\mathcal{H}$应用非极大值抑制(Non-Maximum Suppression, NMS),提取局部极大值作为候选物体中心。保留置信度分数高于阈值$\tau$的前$N$个中心点。
+    
+    \item \textbf{中心点细化}: 对每个提取的中心点,应用预测的偏移量$\mathcal{O}$获得细化后的中心位置。
+    
+    \item \textbf{三维边界框构建}: 结合细化后的中心位置与预测的物体属性构建三维边界框。对于nuScenes数据集,每个ROI $r_i$包含9个维度的信息,参数化为:
+    \begin{equation}
+        r_i = (x_i, y_i, z_i, l_i, w_i, h_i, \theta_i, v_{i}^x, v_{i}^y)
+    \end{equation}
+    其中$(x_i, y_i, z_i)$表示三维中心坐标,$(l_i, w_i, h_i)$表示物体尺寸,$\theta_i$是偏航角,$(v_{x_i}, v_{y_i})$是物体在$x$和$y$方向的速度分量。
+    
+    \item \textbf{ROI过滤}: 应用置信度阈值筛选和类别特定的NMS来过滤冗余建议框,产生最终的教师网络ROI建议框集合$\mathcal{R} = \{r_i\}_{i=1}^{N}$,对应的置信度分数$\{s_i\}_{i=1}^{N}$和类别标签$\{l_i\}_{i=1}^{N}$。
+\end{enumerate}
+
+
+
+\subsection{GT-guided Feature Distillation}
+早期作品如所做的 Feature Distillation策略较为粗糙，选择直接对齐教师网络产生的中间特征和学生网络产生的中间特征，例如：都使用bev范式，学生网络产生的bev feature记为$F^S$,教师网络产生的bev feature记为$F^T$，对齐损失记为：
+
+\begin{equation*}
+    L_{feature}
+    = \frac{1}{H\times W} \sum_{i=1}^H\sum_{j=1}^W \left\lVert \mathbf{F}_{ij}^{T} - \mathbf{{F}}_{ij}^{S} \right\rVert_2
+\end{equation*}
+
+H,W分别代表用于用于蒸馏的bev特征的长和宽，$\left\lVert \ \right\rVert_2$代表$L_2$范数。这种早期做法在跨模态蒸馏的情景下存在两个严重问题，首先即使教师网络和学生网络都采用了bev范式，依旧存在较为严重的领域偏移，其次存在物体的情况下lidar探测器才可以接收到来自物体反射的点，但是相机是平等地采集了前景物体和背景的信息，所以简单地把所有区域都视为同等价值来做特征对齐显然不会达到最佳性能。
+
+在 CRKD~\cite{Zhao_2024_CVPR} 中提出了 GT-guided Feature Distillation，这一方法也成为了后面跨模态蒸馏工作的重要范式，流程如图~\ref{fig:gt_guided_distill}所示：
+\begin{figure}[htbp]
+    % 1. 居中命令，使图片和标题居中
+    \centering
+    
+    % 2. 插入图片的核心命令
+    % file.png 替换为您的图片文件名
+    % width 参数用于控制图片大小
+    \includegraphics[width=1.0\textwidth]{GT-distill.pdf}
+    \caption{Illustration of the GT-guided Feature Distillation paradigm. For each GT box, a Gaussian mask is drawn on the BEV plane; the student network is supervised to mimic the teacher BEV features within the masked foreground regions.}
+    \label{fig:gt_guided_distill}
+\end{figure}
+
+对于每个 GT 框，可以表示为 $(h_i,w_i,l_i,x_i,y_i,z_i,\theta_i,v_i^x,v_i^y)$，GT-guided Feature Distillation 策略则是为每一个 GT 框绘制权重掩码，来迫使学生网络学习教师网络在前景区域产生的特征，抑制背景区域的特征学习，进而提升学生网络的表现。因为 GT 框的边界其实也蕴含有上下文信息，所以更适合使用软监督的方式来生成掩码，我们为每个 GT 框绘制高斯分布形式的掩码 $m_{i,x,y}$，其中 $\sigma_i$ 是高斯分布的标准差，由目标在 BEV 平面上的投影尺寸 $(h_i, w_i)$ 和最小 IoU 重叠阈值 $O$（默认为 0.1）通过 CenterNet~\cite{centernet} 中的高斯半径函数确定。$m_{i,x,y}$ 的具体形式为：
+
+\begin{equation}
+m_{i, x, y} = \exp \left( - \frac{(x - x_i)^2 + (y - y_i)^2}{2\sigma_i^2} \right)
+\end{equation}
+
+我们在一张bev上为每一个GT框绘制对应的掩码掩码$m_{i, x, y}$，因为是在同一张bev上绘制，所以将这些掩码$m_{i, x, y}$可以合并为一个单独的掩码M。如果某一区域同时存在不同的掩码$m_{i, x, y}$，则取该区域最大的掩码值，最终的特征级蒸馏损失如（3）式。
+\begin{equation}
+ L_{\text{feature}}
+= \frac{1}{N_p} \sum_{i=1}^H\sum_{j=1}^W M_{ij} \left\lVert \mathbf{F}_{ij}^{T} - \phi(\mathbf{F}_{ij}^{S}) \right\rVert_2
+\end{equation}
+其中DistillAdaptor模块$\phi$由简易的卷积核，BN层，ReLU层组成，主要有两个作用，一个是用来对齐教师特征和学生特征的形状，另一个作用是可以缓解模态差异，可以理解为将学生特征投影到教师特征所在的空间，$N_p$是掩码M中非零的像素数量。
+
+虽然 GT-guided Feature Distillation 已经在跨模态蒸馏中取得良好表现，但其区域选择机制仍存在局限。首先，GT 掩码会将所有前景区域视为可靠蒸馏区域，但 LiDAR 的稀疏性导致远距离或弱反射目标在教师 BEV 特征中并不可靠，直接约束学生模仿这些区域可能反而带来噪声。其次，已有研究指出 LiDAR 与图像模型在几何与语义方面具有互补优势。单纯让学生完全匹配教师特征，会削弱其视觉分支的语义能力，不利于跨模态蒸馏充分发挥模态互补性。
+
+\section{Method}
+\subsection{Overview}
+如图~\ref{fig:overview}所示，我们提出的跨模态蒸馏框架以 BEV 空间为统一表征，采用 LiDAR-based 的 CenterPoint 作为教师模型，BEVDepth 作为相机端学生模型。为了解决传统 GT-guided 蒸馏在教师可靠性与模态互补性方面的局限（见第 2 节），本文将蒸馏流程组织为三步：\textbf{(i)} 基于教师 ROI 对每个 GT 进行质量分类；\textbf{(ii)} 根据分类结果对蒸馏掩码进行质量感知的空间扩张；\textbf{(iii)} 在扩张后的掩码范围内按质量分配权重并执行特征级蒸馏。  
+下面的 4.2 节介绍我们用于比较的 Baseline 实现，4.3 节则详细描述上述三大模块及其具体实现与损失构成。
+
+\begin{figure}[htbp]
+    % 1. 居中命令，使图片和标题居中
+    \centering
+
+    \includegraphics[width=1.0\textwidth]{labelx.drawio.pdf}
+    
+    % 4. 标题（Caption），用于添加说明文字
+    \caption{Overview of our cross-modal distillation pipeline . The teacher network is frozen, and only the student network is updated during training.}
+    
+    % 5. 标签（Label），用于引用，应在 \caption 之后
+    \label{fig:overview}
+\end{figure}
+
+
+\subsection{Baseline}
+作为对比基线，我们采用如下实现：教师模型为 CenterPoint，它通过体素化主干网络处理 LiDAR 点云并在 BEV 平面生成高质量特征，随后由 CenterHead 进行检测预测。教师网络在蒸馏期间保持冻结，仅作为稳定的监督源。学生模型为 BEVDepth，其包含图像主干、深度预测模块与 BEV 编码器：模型先估计每像素的深度分布，随后通过深度引导的视锥体池化（frustum pooling）将多视图图像特征提升到 BEV 空间，并使用与教师相同结构的 CenterHead 输出三维检测结果。
+
+在基线蒸馏设置中，我们在 BEV 网格上对齐教师与学生特征，并在 GT 覆盖区域内施加特征蒸馏监督。为便于后续改进实验，本文将基线实现作为与我们提出方法对照的参考，具体的 ROI 引导蒸馏机制将在 4.3 节详细描述。
+
+
+
+\subsection{ROI-Guided Feature Distillation}
+
+基于第 2 节中对 GT-guided 蒸馏局限性的分析，我们在基线框架之上提出了 ROI-Guided Feature Distillation，用以在保证模态互补性的同时提升监督区域的可靠性。其核心思想是：让教师的 ROI 决定“哪些 GT 更可信、哪些区域需要扩大、哪些位置应被强化监督”，从而构建一个质量自适应的蒸馏机制。
+
+具体而言，我们将整个蒸馏过程组织为三个相互关联的模块。首先，依据教师 ROI 对每个 GT 的匹配质量进行分类，以区分高置信度、中置信度与未检测实例。其次，根据分类结果对对应区域的蒸馏掩码进行质量感知的空间扩张，以缓解尺度差异及小目标信息不足问题。最后，我们在扩张后的掩码上施加质量调制的蒸馏权重，对 BEV 特征执行稳定而细粒度的跨模态监督。
+
+下文将依次介绍上述三个模块的具体设计与实现细节。
+
+
+\subsubsection{Teacher ROI Guided GT Classification}
+为了可靠地识别哪些 GT 区域能够受到教师模型的有效监督，我们基于教师模型产生的 ROI，对每个 GT 执行一次中心距离驱动的质量分类。不同于传统 2D 检测中基于 IoU 的匹配方式，nuScenes 官方评估协议~\cite{nuscenes}采用 BEV 平面上预测框与 GT 框中心点之间的欧氏距离作为匹配准则。我们借鉴这一基于中心距离的匹配范式，将其扩展为教师 ROI 与 GT 之间的质量分级机制，并同时考虑 CenterHead 中的多任务头结构，确保 ROI label 与 GT 所属任务组一致。
+
+具体而言，对于每一个 GT $g_j$，我们首先收集所有与其类别相同任务组的教师 ROI，并计算它们在 BEV 中心点的欧氏距离。nuScenes 官方评估协议为不同类别定义了差异化的中心距离匹配阈值，以反映各类目标在物理尺度和定位精度上的差异。我们沿用这一类别相关的距离阈值体系，为每个类别 $c$ 定义两级阈值 $\left\{\tau^{high}_c, \tau^{med}_c\right\}$（其中 $\tau^{high}_c < \tau^{med}_c$），将 GT $g_j$ 按匹配质量划分为以下三组：
+
+\begin{enumerate}
+    \item[($\mathbf{1}$)] \textbf{高质量匹配 ($\mathcal{G}^{high}$)}：
+    若存在距离不超过$\tau^{high}_c$ 的 ROI。该 GT 记为高质量匹配，并选择得分最高的 ROI作为其参考监督目标。
+
+    \item[($\mathbf{2}$)] \textbf{中质量匹配 ($\mathcal{G}^{med}$)}：
+    若没有高质量 ROI，但存在距离位于 $(\tau^{high}_c, \tau^{med}_c]$ 区间的 ROI。该 GT 被标记为中质量匹配。
+
+    \item[($\mathbf{3}$)] \textbf{未匹配 ($\mathcal{G}^{unmatch}$)}：
+    若上述两类 ROI均不存在。该 GT 被视为未匹配，表示教师在此区域缺乏可靠响应。
+\end{enumerate}
+
+最终，我们将所有 GT 划分为三组 $\mathcal{G}^{high}, \mathcal{G}^{med}, \mathcal{G}^{unmatch}$。所有匹配 GT 均记录其最高分的对应教师 ROI，用于后续的掩码构建和蒸馏加权策略。整个流程如算法所示。
+
+\begin{algorithm}[H]  
+\caption{Teacher ROIs Guided GT Classification}
+\label{alg:roi_classification}
+\KwIn{Teacher ROIs $\mathcal{R} = \{r_i\}_{i=1}^{N}$, ROI scores $\{s_i\}_{i=1}^{N}$, ROI labels $\{l_i\}_{i=1}^{N}$, Ground truth boxes $\mathcal{G} = \{g_j\}_{j=1}^{M}$, Distance thresholds $\{\tau^{high}_c, \tau^{med}_c\}$ per class $c$}
+\KwOut{GTs matched by high-quality ROIs $\mathcal{G}^{high}$, GTs matched by medium-quality ROIs $\mathcal{G}^{med}$, Unmatched GTs $\mathcal{G}^{unmatch}$}
+
+Initialize $\mathcal{G}^{high} \gets \emptyset$, $\mathcal{G}^{med} \gets \emptyset$, $\mathcal{G}^{unmatch} \gets \emptyset$\;
+
+\For{each GT $g_j \in \mathcal{G}$}{
+    Get class $c_j$ of $g_j$ and thresholds $\tau^{high}_{c_j}, \tau^{med}_{c_j}$\;
+    Compute distances $\mathcal{D}_j = \{\|r_i^{xy} - g_j^{xy}\|_2\}_{i=1}^{N}$ \Comment*[r]{Distance between ROI center and GT center}
+    $\mathcal{I}^{high}_j \gets \{i \mid \mathcal{D}_j[i] \leq \tau^{high}_{c_j} \land \text{SameTaskGroup}(l_i, c_j)\}$ \Comment*[r]{Indices of high-quality matching ROIs}
+    $\mathcal{I}^{med}_j \gets \{i \mid \tau^{high}_{c_j} < \mathcal{D}_j[i] \leq \tau^{med}_{c_j} \land \text{SameTaskGroup}(l_i, c_j)\}$ \Comment*[r]{Indices of medium-quality matching ROIs}
+    
+    \eIf{$\mathcal{I}^{high}_j \neq \emptyset$}{
+        $i^* = \arg\max_{i \in \mathcal{I}^{high}_j} s_i$ \Comment*[r]{Index of the highest score ROI}
+        $r^* \gets r_{i^*}$, $s^* \gets s_{i^*}$, $l^* \gets l_{i^*}$\;
+        $\mathcal{G}^{high} \gets \mathcal{G}^{high} \cup \{(g_j, r^*, s^*, l^*)\}$ \Comment*[r]{\textbf{Classify GT} as high-quality matched}
+    }{
+        \eIf{$\mathcal{I}^{med}_j \neq \emptyset$}{
+            $i^* = \arg\max_{i \in \mathcal{I}^{med}_j} s_i$\;
+            $r^* \gets r_{i^*}$, $s^* \gets s_{i^*}$, $l^* \gets l_{i^*}$\;
+            $\mathcal{G}^{med} \gets \mathcal{G}^{med} \cup \{(g_j, r^*, s^*, l^*)\}$ \Comment*[r]{\textbf{Classify GT} as medium-quality matched}
+        }{
+            $\mathcal{G}^{unmatch} \gets \mathcal{G}^{unmatch} \cup \{g_j\}$ \Comment*[r]{Undetected GT, \textbf{Classify GT} as unmatched}
+        }
+    }
+}
+\Return{$\mathcal{G}^{high}, \mathcal{G}^{med}, \mathcal{G}^{unmatch}$}
+
+\textit{Note:} \text{SameTaskGroup}$(l_i, c_j)$ returns True if ROI label $l_i$ and GT class $c_j$ belong to the same task group.
+\end{algorithm}
+
+% 算法概述部分
+% 算法概述部分
+\subsubsection{Adaptive GT Box Scaling}
+GT-guided 蒸馏范式默认静态 GT 框能准确描述教师前景特征的空间支持范围，然而这一假设在动态场景中往往不成立。LiDAR 传感器采用旋转扫描的工作方式，完成一次 360° 扫描通常需要约 100\,ms 的时间窗口。在此期间，运动目标会沿其行驶方向持续位移，导致先后采集到的反射点在空间上沿运动方向产生拉伸。以一辆速度为 36\,km/h（10\,m/s）的车辆为例，在 100\,ms 的扫描周期内其位移约为 1\,m，这意味着该目标的实际点云分布相比瞬时位置会沿运动方向延伸约 1\,m。对于高速目标，这种拉伸效应更加显著。然而，GT 框是基于关键帧时刻的物体瞬时位姿标注的，无法反映采样窗口内的运动轨迹，因此教师网络实际处理的点云分布可能超出 GT 框所定义的空间边界。若蒸馏区域仍严格受限于静态 GT，则会遗漏教师特征在运动方向上的有效响应区域。
+
+CRKD~\cite{Zhao_2024_CVPR} 首先注意到这一问题，提出基于速度对前景区域进行固定比例的面积放大。我们在此基础上进一步提出 \textbf{Adaptive GT Scaler}，结合上一模块的 GT 质量分类和教师 ROI 的位置信息，对蒸馏区域进行差异化的空间扩展。核心思想是：不同匹配质量等级反映了教师对目标检测置信程度的差异，ROI 中心相对 GT 中心的偏移方向指示了教师特征在该目标上的实际响应偏向，可以更精准地引导扩展方向。具体策略如下：
+\begin{enumerate}
+    \item[($\mathbf{1}$)] 高质量匹配表明教师对该目标具有较高置信度，ROI 中心与 GT 中心的偏移方向可靠地指示教师特征的实际支持范围偏向哪一侧。因此采用\textbf{单侧定向扩展}，仅沿 ROI 偏移方向扩大 GT 框；
+    \item[($\mathbf{2}$)] 中等质量匹配意味着 ROI 与 GT 的偏移距离较大，方向指示的可靠性下降。采用\textbf{双侧对称扩展}，以更保守的方式兼顾多个可能的偏移方向；
+    \item[($\mathbf{3}$)] 未匹配 GT 意味着教师在该区域缺乏可靠的 ROI 响应，无法利用 ROI 信息引导扩展方向。采用\textbf{固定比例扩展}，并叠加速度补偿。
+\end{enumerate}
+
+\paragraph{速度自适应补偿}
+为处理运动物体的时空不对齐问题，我们沿用 CRKD~\cite{Zhao_2024_CVPR} 中的速度分级扩展函数作为所有缩放策略的基础补偿项：
+\begin{equation}
+f(v) = \begin{cases}
+0 & |v| < 0.3 \text{ m/s} \\
+0.5 \cdot s_{vel} \cdot l_{gt} & 0.3 \leq |v| < 0.8 \text{ m/s} \\
+s_{vel} \cdot l_{gt} & |v| \geq 0.8 \text{ m/s}
+\end{cases}
+\end{equation}
+其中 $l_{gt}$ 为对应维度上 GT 框的原始尺寸，$s_{vel}$ 为速度影响系数。该分级函数及其参数均直接沿用 CRKD~\cite{Zhao_2024_CVPR} 的设定。
+
+\paragraph{统一比例截断阈值}
+不同于使用固定的截断阈值，我们将扩展上限设定为 GT 框自身尺寸的固定比例。具体而言，对于每个 GT，其长度方向和宽度方向的截断阈值分别为 $\mu \cdot l_{gt}$ 和 $\mu \cdot w_{gt}$，其中 $\mu$ 为统一比例系数。这一设计天然适配不同类别目标的物理尺度差异：大型目标（如卡车 $l \approx 10$\,m）的扩展上限自然大于小型目标（如行人 $l \approx 0.7$\,m），无需为不同类别分别设定阈值。
+
+\paragraph{1. 高质量匹配的方向感知单侧扩展}
+放大效果如图~\ref{fig:scale_unilateral}所示。首先计算 ROI 中心在 GT 局部坐标系中的偏移：
+\begin{equation}
+\begin{bmatrix} \Delta x_{local} \\ \Delta y_{local} \end{bmatrix} = \mathbf{R}(\theta_{gt}) \begin{bmatrix} x_{roi} - x_{gt} \\ y_{roi} - y_{gt} \end{bmatrix}
+\end{equation}
+其中 $\mathbf{R}(\theta_{gt})$ 为 GT 朝向角 $\theta_{gt}$ 对应的旋转矩阵。基于局部偏移方向，我们仅在 ROI 所在侧扩展 GT 边界，扩展量为：
+\begin{equation}
+\Delta l_{gt} = \min(|\Delta x_{local}|,\; \mu \cdot l_{gt}) + f(v_{gt}^x)
+\end{equation}
+\begin{equation}
+\Delta w_{gt} = \min(|\Delta y_{local}|,\; \mu \cdot w_{gt}) + f(v_{gt}^y)
+\end{equation}
+该公式的含义是：ROI 中心相对 GT 中心在局部坐标系中的偏移量直接决定了单侧扩展的幅度，$\min$ 操作确保偏移贡献不超过目标自身尺寸的 $\mu$ 倍，从而防止异常偏移导致的过度扩展。扩展后需同步调整 GT 中心以保持几何一致性：
+\begin{equation}
+\begin{bmatrix} \Delta x_{gt} \\ \Delta y_{gt} \end{bmatrix} = \mathbf{R}^{-1}(\theta_{gt}) \begin{bmatrix} \text{sgn}(\Delta x_{local}) \cdot \Delta l_{gt} / 2 \\ \text{sgn}(\Delta y_{local}) \cdot \Delta w_{gt} / 2 \end{bmatrix}
+\end{equation}
+
+\paragraph{2. 中等质量匹配的双侧对称扩展}
+中等质量匹配中 ROI 与 GT 的中心偏移距离 $d_{offset}$ 位于 $(\tau^{high}_c, \tau^{med}_c]$ 区间，显著大于高质量匹配的偏移范围。由于偏移方向的可靠性下降，我们改用双侧对称扩展，但同时需要解决一个尺度问题：若直接以 $d_{offset}$ 作为扩展基准，中等质量匹配的扩展幅度将远超高质量匹配，造成两级策略之间的扩展量不协调。
+
+为此，我们引入归一化系数 $\tau^{high}_c / \tau^{med}_c$ 对偏移距离进行缩放。nuScenes 官方评估协议~\cite{nuscenes}为每个类别定义了差异化的中心距离匹配阈值，以反映不同目标在物理尺度和定位精度上的差异。我们的 $\tau^{high}_c$ 和 $\tau^{med}_c$ 沿用了这一类别相关的阈值体系（见表~\ref{tab:thresholds}），因此比值 $\tau^{high}_c / \tau^{med}_c$ 自然继承了协议中对各类目标匹配严格程度的差异化编码。例如，对于大型目标（如 bus，$\tau^{high}_c / \tau^{med}_c = 3.5/4.0 = 0.875$），中等质量的偏移保留度较高；而对于小型目标（如 pedestrian，$0.5/2.0 = 0.25$；barrier，$0.5/2.5 = 0.20$），归一化系数更小，反映出小目标的中等质量匹配本身定位偏差已较大，需要更强的压缩以避免过度扩展。
+
+具体而言，我们首先计算 GT 中心指向 ROI 中心的 BEV 归一化方向向量 $\mathbf{n} = (n_x, n_y)$，然后将偏移距离投影到各维度并乘以归一化系数：
+\begin{equation}
+d_x = \frac{\tau^{high}_c}{\tau^{med}_c} \cdot d_{offset} \cdot |n_x|, \quad
+d_y = \frac{\tau^{high}_c}{\tau^{med}_c} \cdot d_{offset} \cdot |n_y|
+\end{equation}
+当 $d_{offset}$ 达到中等质量的上限 $\tau^{med}_c$ 时，归一化后的等效偏移为 $\tau^{high}_c$，恰好与高质量匹配的最大偏移量衔接，保证了两级策略之间扩展幅度的连续性。随后按与高质量相同的形式计算扩展量：
+\begin{equation}
+\Delta l_{gt} = \min(d_x,\; \mu \cdot l_{gt}) + f(v_{gt}^x), \quad
+\Delta w_{gt} = \min(d_y,\; \mu \cdot w_{gt}) + f(v_{gt}^y)
+\end{equation}
+与高质量匹配的单侧扩展不同，此处的扩展量均匀分配到 GT 框的两侧，GT 中心位置保持不变。
+
+\paragraph{3. 未匹配GT的距离自适应扩展}
+对于未匹配 GT，无 ROI 信息可利用，因此不进行基于偏移方向的扩展，仅保留速度补偿以应对运动目标的时空不对齐。由于 LiDAR 点云密度随距离呈二次衰减~\cite{raanet,density_aware_thresh}，远距离目标的教师 BEV 特征本身已不可靠，对其施加速度补偿的必要性也随之降低。因此我们引入距离自适应衰减系数来调制速度补偿的强度：
+\begin{equation}
+\Delta l_{gt} = \left(1 - \frac{r}{R_{max}}\right)^{\!2} \cdot f(v_{gt}^x), \quad
+\Delta w_{gt} = \left(1 - \frac{r}{R_{max}}\right)^{\!2} \cdot f(v_{gt}^y)
+\end{equation}
+其中 $r = \sqrt{x_{gt}^2 + y_{gt}^2}$ 为 GT 到自车的 BEV 距离，$R_{max}$ 为有效感知范围上限。nuScenes 官方评估协议~\cite{nuscenes}为不同类别定义了差异化的检测范围上限（如大型车辆为 50\,m，行人和自行车为 40\,m，路障和交通锥为 30\,m），超出该范围的目标将不参与评估。我们取最大类别的检测范围作为 $R_{max} = 50$\,m，使距离衰减函数在该阈值处自然归零，与评估协议的有效感知边界保持一致。当 $r \geq R_{max}$ 时扩展量自然归零，无需额外设置截断条件。
+
+\begin{figure}[htbp]
+ \centering
+ \includegraphics[width=0.7\textwidth]{scale.drawio.pdf}
+ \caption{Taking this image as an example, the center of the ROI is in the upper right of the GT box, so the scaling is performed unilaterally only along the right and upper sides. The dashed box is the original GT box.}
+ \label{fig:scale_unilateral}
+\end{figure}
+
+
+\subsubsection{Quality-Aware Mask Weight Assignment}
+
+在 Preliminary 部分，我们介绍了基于 GT 框绘制高斯分布掩码 $m_{i,x,y}$ 的方法。然而，该方法为所有 GT 框分配统一的掩码权重，未能区分不同匹配质量对应的知识可靠性。为此，我们提出\textbf{匹配质量感知的权重调制策略}，为不同质量等级的目标分配差异化的高斯峰值权重 $k_i$。
+
+具体而言，对于第 $i$ 个目标，其掩码分布由式(2)扩展为：
+
+\begin{equation}
+m_{i, x, y} = k_i \cdot \exp \left( - \frac{(x - x_i)^2 + (y - y_i)^2}{2\sigma_i^2} \right)
+\end{equation}
+
+其中 $k_i \in [0, 1]$ 为高斯峰值权重系数，根据匹配质量自适应调整。
+
+为使不同质量等级之间的蒸馏监督强度严格分层，我们引入两个边界参数 $w_l$ 和 $w_h$（$0 < w_l \leq w_h < 1$），将整个权重区间 $[0,1]$ 划分为三个不重叠的质量梯度带：未匹配 $[0, w_l]$、中等质量 $[w_l, w_h]$、高质量 $[w_h, 1]$。在每个区间内部，权重由 ROI 检测置信度 $s_{roi}$ 或目标距离自适应调制。
+
+\textbf{（1）高质量匹配 GT}
+
+高质量匹配表明教师网络在该 GT 附近存在高置信度的检测响应，但即使在高质量匹配内部，教师的检测置信度仍然反映了其对该目标响应的可靠程度。因此，我们将 ROI 置信度 $s_{roi}$ 线性映射到 $[w_h, 1]$ 区间：
+
+\begin{equation}
+k_{high} = w_h + (1 - w_h) \cdot s_{roi}
+\end{equation}
+
+当 $s_{roi} = 1$ 时 $k_{high} = 1$，表示教师对该目标具有最高置信度；当 $s_{roi} = 0$ 时 $k_{high} = w_h$，为高质量层级的权重下界。
+
+\textbf{（2）中等质量匹配 GT}
+
+中等质量匹配的 ROI 与 GT 的中心偏移距离位于 $(\tau^{high}_c, \tau^{med}_c]$ 区间，教师响应的空间定位精度有所下降，但仍提供了有价值的检测信号。我们将 ROI 检测置信度 $s_{roi}$ 线性映射到 $[w_l, w_h]$ 区间：
+
+\begin{equation}
+k_{medium} = w_l + (w_h - w_l) \cdot s_{roi}
+\end{equation}
+
+当 $s_{roi} = 1$ 时 $k_{medium} = w_h$，恰好与高质量层级的下界衔接；当 $s_{roi} = 0$ 时 $k_{medium} = w_l$，与未匹配层级的上界衔接。这一设计确保了相邻质量等级之间的自然过渡。
+
+\textbf{（3）未匹配 GT}
+
+对于未被 ROI 匹配到的 GT，由于 LiDAR 点云密度随距离呈二次衰减~\cite{raanet,density_aware_thresh}，远距离目标在教师 BEV 特征中的表征可靠性也随之降低。我们采用距离自适应衰减函数来设计掩码权重：
+
+\begin{equation}
+k_{unmatched} = w_l \cdot \left(1 - \frac{r_i}{R_{max}}\right)^{\!2}
+\end{equation}
+
+其中 $r_i = \sqrt{x_i^2 + y_i^2}$ 为 GT 到自车的 BEV 距离，$R_{max}$ 为有效感知范围上限（与 Adaptive GT Scaler 共享）。当 $r_i = 0$ 时 $k_{unmatched} = w_l$，恰好与中等质量层级的下界衔接；当 $r_i \geq R_{max}$ 时权重自然归零，不对该目标绘制掩码。
+
+上述三级权重设计将 $[0,1]$ 完整划分为三个不重叠的质量梯度带 $[w_h, 1] \supset [w_l, w_h] \supset [0, w_l]$，形成严格分层的监督强度结构。整个权重体系仅需 $w_l$、$w_h$ 两个语义明确的边界参数与一个共享的 $R_{max}$，便可实现对蒸馏监督强度的质量感知调制。
+
+在为所有目标绘制完各自的高斯掩码 $m_{i,x,y}$ 后，我们将它们合成为单一的质量感知掩码 $\mathbf{M}$。由于所有掩码都位于同一 BEV 平面，不同目标之间可能存在空间重叠。对于重叠像素位置，我们取所有目标掩码值的最大值，得到最终的质量感知掩码 $\mathbf{M}$。
+
+\subsection{Channel-Split Distillation Scheme}
+
+在基于 BEV 表示的三维感知任务中，LiDAR 与视觉模态各具优势。LiDAR 具有高精度的空间深度感知能力，能够提供可靠的几何结构信息；视觉模态则更擅长捕捉丰富的语义线索，对纹理细节具有更好的表达能力。两者在 BEV 空间中构成天然的互补关系。
+
+然而，传统跨模态蒸馏通常以纯视觉模型为学生，让其直接对齐 LiDAR 教师网络的 BEV 特征。尽管这种方法可以增强学生模型的几何感知能力，但本质上仍是一种单向的知识迁移。强蒸馏信号会压制视觉分支原本的语义表达，使得两种模态的互补性无法得到充分发挥。
+
+我们参考 BEVFusion 的设计，该方法在 BEV 空间中直接将 LiDAR 与 Camera 特征沿通道拼接即可实现有效融合。这一现象说明通道维度是区分与融合多模态 BEV 信息的合理方向。受此启发，我们提出通道分割蒸馏策略，使学生模型能够同时保留视觉分支的语义能力，并从 LiDAR 模型中选择性地吸收其几何结构信息。
+
+具体地，学生 BEV 特征 $\mathbf{F}^{S} \in \mathbb{R}^{C \times H \times W}$ 被均等分为两部分：
+\[
+\mathbf{F}^{S} =
+\big[
+\mathbf{F}^{S(1)},\,
+\mathbf{F}^{S(2)}
+\big],
+\]
+其中每个分片的维度为 $(C/2)\times H\times W$。我们将 $\mathbf{F}^{S(2)}$ 保留为原始输出，以维持视觉分支固有的语义表达；而 $\mathbf{F}^{S(1)}$ 则通过 DistillAdaptor：
+\[
+\hat{\mathbf{F}}^{S(1)} = \phi\!\left(\mathbf{F}^{S(1)}\right),
+\]
+并与教师 BEV 特征 $\mathbf{F}^{T}$ 进行蒸馏，使该部分特征更专注于几何结构。蒸馏完成后，两个特征分片在通道维度重新拼接，形成最终的学生 BEV 表示。
+
+质量感知蒸馏损失定义如下：
+\[
+L_{\text{feature}}
+=
+\frac{1}{N_p}
+\sum_{i=1}^{H}\sum_{j=1}^{W}
+\mathbf{M}_{ij}
+\,
+\big\lVert
+\mathbf{F}^{T}_{ij}
+-
+\hat{\mathbf{F}}^{S(1)}_{ij}
+\big\rVert_2 ,
+\]
+其中 $N_p$ 是掩码中非零像素数量。通过仅对一半通道施加蒸馏约束，我们避免了对视觉语义特征的过强干扰，同时有效引入 LiDAR 的几何信息，从而更充分地利用两种模态的互补优势。
+
+
+\subsection{Overall Loss}
+
+为将基于 LiDAR 的教师模型 CenterPoint 的能力有效迁移到仅依赖相机输入的学生模型 BEVDepth，我们构建了一个由检测监督与多层次蒸馏组成的总损失函数：
+\begin{equation}
+\mathcal{L}_{\text{total}}
+=
+\mathcal{L}_{\text{det}}
++
+\lambda_{\text{resp}}
+\mathcal{L}_{\text{resp}}
++
+\lambda_{\text{feat}}
+\mathcal{L}_{\text{feature}},
+\end{equation}
+其中 $\mathcal{L}_{\text{det}}$ 为学生模型从真实标注中学习的基础检测损失，$\mathcal{L}_{\text{resp}}$ 为基于教师预测的响应蒸馏损失，$\mathcal{L}_{\text{feature}}$ 为上一节介绍的质量感知特征蒸馏损失。$\lambda_{\text{resp}}$ 和 $\lambda_{\text{feat}}$ 用于平衡三部分贡献。
+
+
+学生检测损失 $\mathcal{L}_{\text{det}}$ 采用标准 CenterPoint 风格的目标检测监督，包括热图预测的 Focal Loss 与边界框回归的 L1 损失。这一部分保证学生模型能够从真实标注中学习基本的检测语义与几何属性。
+
+响应蒸馏损失 $\mathcal{L}_{\text{resp}}$ 促使学生网络在预测行为上对齐教师网络。与检测监督类似，该部分包含热图蒸馏与边界框蒸馏两项。
+响应蒸馏的最终形式为：
+\begin{equation}
+\mathcal{L}_{\text{resp}}
+=
+\mathcal{L}_{\text{resp}}^{\text{hm}}
++
+\mathcal{L}_{\text{resp}}^{\text{bbox}} .
+\end{equation}
+
+整个蒸馏框架结合真实标签监督、教师行为蒸馏以及质量感知特征蒸馏，使得学生模型在保持视觉语义表达能力的同时，能够有效吸收来自 LiDAR 模态的几何知识，从而显著缩小两者性能差距。
+
+
+\section{Experiments}
+\subsection{Experimental Setup}
+\vspace{0.5em} % 添加一些空间
+\noindent\textbf{Dataset and Metrics:} 我们在 nuScenes 数据集上进行实验。该数据集包含 1000 段时长约 20 秒的驾驶片段，标注频率为 2 Hz，覆盖 10 类常见交通参与体。评估时遵循官方协议，采用 mAP 与 NDS 作为主要指标，并同时报告 mATE、mASE、mAOE、mAVE 和 mAAE，以更细致地分析模型在定位、尺度、朝向、速度和属性预测上的表现。
+
+\vspace{0.5em} % 添加一些空间
+\noindent\textbf{Model Configuration:} 教师模型采用预训练的 CenterPoint [63]，体素尺寸设置为 $(0.1~\text{m}, 0.1~\text{m}, 0.2~\text{m})$。学生模型采用 BEVDepth [29]。除非特别说明，图像主干网络使用 ImageNet 预训练的 ResNet50，输入分辨率设为 $256\times704$。图像与 BEV 空间的数据增强策略均与 [29] 保持一致。主实验与消融实验均使用四帧历史图像。
+
+\vspace{0.5em} % 添加一些空间
+\noindent\textbf{Training Details:}
+学生模型共训练 24 个 epoch，初始学习率设为 $2\times10^{-4}$。优化器采用 AdamW [39]，前 200 个 iteration 采用 warm-up 策略。除非另有说明，所有实验均未使用 CBGS [73]。训练在 3 张 A5000 GPU 上完成，总 batch size 为 12。
+
+\vspace{0.5em}
+\noindent\textbf{Distillation Hyperparameters:}
+ROI-Guided Feature Distillation 的核心超参数设置如下：质量感知掩码的权重边界参数设为 $w_l = 0.5$，$w_h = 0.7$；自适应 GT 放缩的统一比例系数设为 $\mu = 0.15$，速度影响系数 $s_{vel} = 0.2$（沿用 CRKD~\cite{Zhao_2024_CVPR}）；特征蒸馏损失权重 $\lambda_{\text{feat}} = 0.6$。教师 ROI 与 GT 的质量匹配采用类别相关的 BEV 中心距离阈值 $\{\tau^{high}_c, \tau^{med}_c\}$，具体设置如表~\ref{tab:thresholds} 所示。该阈值体系参考了 nuScenes 官方评估协议中差异化的类别匹配标准，以反映不同目标在物理尺度和定位精度上的差异。
+
+\begin{table}[H]
+\centering
+\caption{Class-specific center distance thresholds for teacher ROI--GT quality matching. $\tau^{high}_c$ and $\tau^{med}_c$ denote the high-quality and medium-quality matching thresholds (in meters), respectively.}
+\label{tab:thresholds}
+\small
+\vspace{2mm}
+\begin{tabular}{lcc}
+\toprule
+Class & $\tau^{high}_c$ (m) & $\tau^{med}_c$ (m) \\
+\midrule
+car & 2.0 & 4.0 \\
+truck & 2.5 & 4.0 \\
+construction\_vehicle & 2.5 & 4.0 \\
+bus & 3.5 & 4.0 \\
+trailer & 2.5 & 4.0 \\
+barrier & 0.5 & 2.5 \\
+motorcycle & 1.0 & 2.5 \\
+bicycle & 1.0 & 2.5 \\
+pedestrian & 0.5 & 2.0 \\
+traffic\_cone & 0.5 & 2.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Main Results}
+我们首先将所提出的方法与现有基于相机的 3D 目标检测方法进行比较，结果如表~\ref{tab:nuscenes_results} 所示。在 nuScenes 验证集上，对于 ResNet50 设置，本文方法取得了 40.34 mAP 和 51.83 NDS，相比基线模型 BEVDepth 分别提升了 7.04 和 7.73 个百分点。对于 ResNet101 设置，本文方法达到 43.9 mAP 和 53.5 NDS，相比对应基线分别提升了 3.3 和 4.5 个百分点。此外，我们在 nuScenes 测试集上使用 ConvNeXt-B 主干网络进行了验证，取得了 49.8 mAP 和 58.2 NDS，相比复现的 BEVDepth 基线分别提升了 2.3 和 2.1 个百分点，进一步证明了本方法在更强 backbone 上的泛化性。
+
+进一步地，我们将该方法与其他 LiDAR 引导的跨模态蒸馏方法进行比较，结果如表~\ref{tab:comparison} 所示。由于不同方法往往建立在不同基线和训练配置之上，直接比较绝对数值并不总是完全公平，因此这里同时关注其相对基线的性能增益。从结果可以看出，本文方法在不同 backbone 设置下都表现出稳定而显著的改进，说明所提出的 ROI 引导蒸馏策略能够有效提升相机 3D 检测器的表征能力。值得注意的是，上述结果均在未使用 CBGS [73] 的条件下获得，进一步表明本文方法本身具有较强的有效性。
+
+
+
+\begin{table}[H]
+\centering
+\caption{Comparison with state-of-the-art camera-based 3D detectors on nuScenes val and test sets.}
+\label{tab:nuscenes_results}
+\small
+\resizebox{\textwidth}{!}{
+\begin{tabular}{llccccccccc}
+\toprule
+Split & Method & Backbone & Size (H$\times$W) & NDS & mAP & mATE & mASE & mAOE & mAVE & mAAE \\
+\midrule
+\multirow{12}{*}{\rotatebox{90}{\textbf{Val}}}
+& BEVDet4D [17] & ResNet50 & 256$\times$704 & 45.3 & 32.3 & 0.674 & 0.272 & 0.503 & 0.429 & 0.208 \\
+& BEVDepth [29] & ResNet50 & 256$\times$704 & 44.1 & 33.3 & 0.683 & 0.276 & 0.545 & 0.526 & 0.226 \\
+& BEVStereo [28] & ResNet50 & 256$\times$704 & 44.9 & 34.4 & 0.659 & 0.276 & 0.579 & 0.503 & 0.216 \\
+& VEDet$^{\dagger}$ [4] & ResNet50 & 384$\times$1056 & 44.3 & 34.7 & 0.726 & 0.282 & 0.542 & 0.555 & 0.198 \\
+& PETR v2 [36] & ResNet50 & 256$\times$704 & 45.6 & 34.9 & 0.700 & 0.275 & 0.580 & 0.437 & 0.187 \\
+& FB-BEV$^{\dagger}$ [31] & ResNet50 & 256$\times$704 & 47.9 & 35.0 & 0.642 & 0.275 & 0.459 & 0.391 & 0.193 \\
+& AeDet$^{\dagger}$ [10] & ResNet50 & 256$\times$704 & 47.3 & 35.8 & 0.655 & 0.273 & 0.493 & 0.427 & 0.216 \\
+& P2D [24] & ResNet50 & 256$\times$704 & 48.6 & 37.4 & 0.631 & 0.272 & 0.508 & 0.384 & 0.212 \\
+& BEVFormer v2$^{\dagger}$ [61] & ResNet50 & 640$\times$1600 & 49.8 & 38.8 & 0.679 & 0.276 & 0.417 & 0.403 & 0.189 \\
+& SOLOFusion [45] & ResNet50 & 256$\times$704 & 49.7 & 40.6 & 0.609 & 0.284 & 0.650 & 0.315 & 0.204 \\
+& Ours & ResNet50 & 256$\times$704 & \textbf{51.83} & \textbf{40.34} & 0.594 & 0.261 & 0.387 & 0.370 & 0.223 \\
+\cmidrule{2-11}
+& DETR3D$^{\dagger}$ [56] & ResNet101 & 900$\times$1600 & 43.4 & 34.9 & 0.716 & 0.268 & 0.379 & 0.842 & 0.200 \\
+& BEVDepth [29] & ResNet101 & 512$\times$1408 & 49.0 & 40.6 & 0.626 & 0.278 & 0.513 & 0.489 & 0.226 \\
+& BEVFormer [30] & ResNet101 & 900$\times$1600 & 51.7 & 41.6 & 0.673 & 0.274 & 0.372 & 0.394 & 0.198 \\
+& VEDet$^{\dagger}$ [4] & ResNet101 & 512$\times$1408 & 52.0 & 43.2 & 0.638 & 0.275 & 0.362 & 0.498 & 0.191 \\
+& PolarFormer [23] & ResNet101 & 900$\times$1600 & 52.8 & 43.2 & 0.648 & 0.270 & 0.348 & 0.409 & 0.201 \\
+& P2D [24] & ResNet101 & 512$\times$1408 & 52.8 & 43.3 & 0.619 & 0.265 & 0.432 & 0.364 & 0.211 \\
+& Ours & ResNet101 & 512$\times$1408 & 53.5 & 43.9 & 0.601 & 0.258 & 0.377 & 0.401 & 0.213 \\
+\midrule
+\multirow{2}{*}{\textbf{Test}}
+& BEVDepth$^{*}$ [29] & ConvNeXt-B & 900$\times$1600 & 56.1 & 47.5 & 0.474 & 0.259 & 0.463 & 0.432 & 0.134 \\
+& Ours & ConvNeXt-B & 900$\times$1600 & \textbf{58.2} & \textbf{49.8} & 0.542 & 0.250 & 0.355 & 0.360 & 0.195 \\
+\bottomrule
+\end{tabular}
+}
+\vspace{2mm}
+\noindent\footnotesize{$^{\dagger}$ denotes methods using CBGS. $^{*}$ denotes our re-implemented baseline.}
+\end{table}
+
+
+
+
+\begin{table}[H]
+\centering
+\caption{Performance Comparison with Baseline Models}
+\label{tab:comparison}
+\vspace{2mm}
+\small
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lcccccc}
+\toprule
+Model & Baseline & Modality & Image Size (W$\times$H) & Backbone & mAP & NDS \\
+\midrule
+\multicolumn{7}{c}{\textbf{ResNet-50 Backbone Models}} \\
+\midrule
+UniDistill [71] & BEVDet & L→C & $704\times256$ & ResNet50 & 29.6 & 39.3 \\
+BEVDistill [6] & BEVDepth & L→C & $704\times256$ & ResNet50 & 33.0 & 45.2 \\
+TiG-BEV [20] & BEVDepth & L→C & $704\times256$ & ResNet50 & 36.6 & 46.1 \\
+BEVSimDet [70] & BEVFusion-C & L→C & $704\times256$ & ResNet50 & 37.3 & 43.8 \\
+X3KD$^{\dagger}$ [25] & BEVDepth & L→C & $704\times256$ & ResNet50 & 39.0 & 50.5 \\
+DistillBEV$^{\dagger}$ [59] & BEVDepth & L→C & $704\times256$ & ResNet50 & 39.0 & 50.6 \\
+Ours & BEVDepth & L→C & $704\times256$ & ResNet50 & \textbf{40.34} & \textbf{51.83} \\
+\midrule
+\multicolumn{7}{c}{\textbf{ResNet-101 Backbone Models}} \\
+\midrule
+UVTR [27] & - & L→C & $1600\times900$ & ResNet101 & 39.2 & 48.8 \\
+BEVDistill$^{\dagger}$ [6] & BEVFormer & L→C & $1600\times900$ & ResNet101 & 41.7 & 52.4 \\
+TiG-BEV [20] & BEVDepth & L→C & $1408\times512$ & ResNet101 & 43.0 & 51.4 \\
+DistillBEV$^{\dagger}$ [59] & BEVDepth & L→C & $1408\times512$ & ResNet101 & 43.6 & 53.6 \\
+Ours & BEVDepth & L→C & $1408\times512$ & ResNet101 & 43.9 & 53.5 \\
+\bottomrule
+\end{tabular}
+}
+\vspace{2mm}
+\begin{tablenotes}
+\small
+\item L→C: LiDAR teacher to Camera student.
+\item $^{\dagger}$ denotes models using CBGS
+\end{tablenotes}
+\end{table}
+
+
+
+
+
+
+\subsection{Ablation Study}
+
+为验证各组成模块的实际贡献，我们在 nuScenes 验证集（ResNet50，$256\times704$）上进行了消融实验，结果如表~\ref{tab:ablation} 所示。以全通道 GT 引导蒸馏作为基础配置（第 1 行），我们分别考察通道分割策略（Channel-Split）、ROI 质量分类（ROI Classification）以及自适应放缩（Adaptive Scaling）的独立和组合贡献。
+
+% TODO: 等 5-frame 模块消融结果出来后更新以下分析文字
+
+\begin{table}[H]
+\centering
+\caption{Ablation study of each proposed component on nuScenes val set (ResNet50, $256\times704$). \checkmark~denotes the module is enabled.}
+\label{tab:ablation}
+\small
+\vspace{2mm}
+\begin{tabular}{ccc|cc}
+\toprule
+Channel-Split & ROI Classification & Adaptive Scaling & mAP$\uparrow$ & NDS$\uparrow$ \\
+\midrule
+ &  &  & -- & -- \\
+\checkmark &  &  & -- & -- \\
+ & \checkmark &  & -- & -- \\
+\checkmark & \checkmark &  & -- & -- \\
+ & \checkmark & \checkmark & -- & -- \\
+\checkmark & \checkmark & \checkmark & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Parameter Sensitivity Analysis}
+为验证核心超参数的选取合理性，我们在 nuScenes 验证集（ResNet50，$256\times704$）上分别对质量感知掩码的权重边界参数 $(w_l, w_h)$、特征蒸馏损失权重 $\lambda_{\text{feat}}$ 以及自适应放缩比例系数 $\mu$ 进行敏感性分析。每组实验仅改变目标参数，其余超参数固定为默认值。
+
+\subsubsection{Quality-Aware Weight Boundaries $(w_l, w_h)$}
+$w_l$ 和 $w_h$ 共同决定了三级蒸馏监督的权重分层结构。我们在固定 $\mu = 0.15$、$\lambda_{\text{feat}} = 0.6$ 的条件下，考察不同 $(w_l, w_h)$ 组合对性能的影响，结果如表~\ref{tab:wl_wh} 所示。
+
+\begin{table}[H]
+\centering
+\caption{Sensitivity analysis of quality-aware weight boundaries $(w_l, w_h)$ on nuScenes val set (ResNet50, $256\times704$). Other hyperparameters are fixed at $\mu = 0.15$, $\lambda_{\text{feat}} = 0.6$.}
+\label{tab:wl_wh}
+\small
+\vspace{2mm}
+\begin{tabular}{cc|cc}
+\toprule
+$w_l$ & $w_h$ & mAP$\uparrow$ & NDS$\uparrow$ \\
+\midrule
+0.30 & 0.80 & 39.81 & 51.39 \\
+0.35 & 0.75 & 40.04 & 51.25 \\
+0.35 & 0.70 & 40.09 & 51.05 \\
+0.40 & 0.70 & 40.03 & 51.22 \\
+\textbf{0.50} & \textbf{0.70} & \textbf{40.33} & \textbf{51.60} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+从结果可以看出，$w_l$ 对性能的影响较为显著：在固定 $w_h = 0.70$ 的条件下，$w_l$ 从 0.35 提升至 0.50 时，mAP 从 40.09 提升至 40.33（+0.24），NDS 从 51.05 提升至 51.60（+0.55）。这表明适当提高未匹配区域的权重下界有助于保留更多前景信息。最终我们选择 $(w_l, w_h) = (0.50, 0.70)$ 作为默认设置。
+
+\subsubsection{Feature Distillation Loss Weight $\lambda_{\text{feat}}$}
+$\lambda_{\text{feat}}$ 控制特征蒸馏损失在总损失中的相对权重。过小的 $\lambda_{\text{feat}}$ 导致蒸馏信号不足，过大则可能压制检测损失的梯度。我们在固定 $(w_l, w_h) = (0.50, 0.70)$、$\mu = 0.15$ 的条件下进行消融，结果如表~\ref{tab:lambda} 所示。
+
+\begin{table}[H]
+\centering
+\caption{Sensitivity analysis of feature distillation loss weight $\lambda_{\text{feat}}$ on nuScenes val set (ResNet50, $256\times704$). Other hyperparameters are fixed at $(w_l, w_h) = (0.50, 0.70)$, $\mu = 0.15$.}
+\label{tab:lambda}
+\small
+\vspace{2mm}
+\begin{tabular}{c|cc}
+\toprule
+$\lambda_{\text{feat}}$ & mAP$\uparrow$ & NDS$\uparrow$ \\
+\midrule
+0.2 & -- & -- \\
+0.4 & -- & -- \\
+0.5 & -- & -- \\
+0.55 & -- & -- \\
+\textbf{0.6} & \textbf{40.33} & \textbf{51.60} \\
+0.65 & -- & -- \\
+0.7 & -- & -- \\
+0.8 & -- & -- \\
+1.0 & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsubsection{Adaptive Scaling Ratio $\mu$}
+$\mu$ 决定了 GT 框在各维度上的最大扩展比例。较小的 $\mu$ 使扩展更为保守，较大的 $\mu$ 允许更大幅度的空间扩张。我们在固定 $(w_l, w_h) = (0.50, 0.70)$、$\lambda_{\text{feat}} = 0.6$ 的条件下进行消融，结果如表~\ref{tab:mu} 所示。
+
+\begin{table}[H]
+\centering
+\caption{Sensitivity analysis of adaptive scaling ratio $\mu$ on nuScenes val set (ResNet50, $256\times704$). Other hyperparameters are fixed at $(w_l, w_h) = (0.50, 0.70)$, $\lambda_{\text{feat}} = 0.6$.}
+\label{tab:mu}
+\small
+\vspace{2mm}
+\begin{tabular}{c|cc}
+\toprule
+$\mu$ & mAP$\uparrow$ & NDS$\uparrow$ \\
+\midrule
+0.10 & -- & -- \\
+\textbf{0.15} & \textbf{40.33} & \textbf{51.60} \\
+0.20 & -- & -- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Conclusion}
+本文围绕跨模态 BEV 特征蒸馏中的监督可靠性与模态互补性问题，提出了 ROI-Guided Feature Distillation 框架。该方法利用教师 ROI 对 GT 区域进行质量划分，并结合自适应空间扩张与通道分割蒸馏策略，在增强几何监督有效性的同时，尽可能保留视觉分支原有的语义表达能力。实验结果表明，所提出的方法在 nuScenes 数据集上能够稳定提升 BEVDepth 的检测性能，并在不同 backbone 设置下均取得一致增益。上述结果说明，基于教师响应质量构建更精细的蒸馏区域与监督强度，是改进跨模态 3D 检测蒸馏效果的一条有效方向。
+
+\clearpage
+\bibliographystyle{unsrt}
+\bibliography{refs}
+
+
+
+\end{document}
+
+
+
+
