@@ -14,7 +14,12 @@ class QualityAwareMaskGeneratorV3(nn.Module):
 
     SMALL_CLASSES = {5, 6, 8, 9}  # barrier, motorcycle, pedestrian, traffic_cone
 
-    def __init__(self, w_l=0.4, w_h=0.7, r_max=50.0, boost_small_medium=False):
+    def __init__(self, w_l=0.4, w_h=0.7, r_max=50.0,
+                 boost_small_medium=False, *,
+                 point_cloud_range=None, voxel_size=None,
+                 out_size_factor=8, feature_map_size=None,
+                 gaussian_overlap=0.1, min_radius=2,
+                 small_class_ids=None):
         super().__init__()
         assert 0 < w_l <= w_h < 1, (
             f"Need 0 < w_l <= w_h < 1, got w_l={w_l}, w_h={w_h}")
@@ -22,21 +27,37 @@ class QualityAwareMaskGeneratorV3(nn.Module):
         self.w_h = w_h
         self.r_max = r_max
         self.boost_small_medium = boost_small_medium
+        self.small_class_ids = set(
+            self.SMALL_CLASSES if small_class_ids is None else small_class_ids)
 
-        grid_size = [1024, 1024, 40]
-        voxel_size = [0.1, 0.1, 0.2]
-        out_size_factor = 8
-        point_cloud_range = [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
+        voxel_size = list(voxel_size or [0.1, 0.1, 0.2])
+        point_cloud_range = list(
+            point_cloud_range
+            or [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0])
+        if len(voxel_size) != 3 or len(point_cloud_range) != 6:
+            raise ValueError('voxel_size and point_cloud_range must have 3 and 6 values')
+        if out_size_factor <= 0 or gaussian_overlap <= 0 or min_radius < 0:
+            raise ValueError(
+                'out_size_factor/gaussian_overlap must be positive and '
+                'min_radius must be non-negative')
+        if feature_map_size is None:
+            extents = [
+                point_cloud_range[3] - point_cloud_range[0],
+                point_cloud_range[4] - point_cloud_range[1],
+            ]
+            feature_map_size = [
+                int(round(extent / voxel_size[idx] / out_size_factor))
+                for idx, extent in enumerate(extents)
+            ]
+        if len(feature_map_size) != 2:
+            raise ValueError('feature_map_size must contain [width, height]')
 
         self.register_buffer('pc_range', torch.tensor(point_cloud_range))
         self.register_buffer('voxel_size', torch.tensor(voxel_size))
         self.out_factor = out_size_factor
-        self.gaussian_overlap = 0.1
-        self.min_radius = 2
-        self.feature_map_size = (
-            grid_size[0] // out_size_factor,
-            grid_size[1] // out_size_factor,
-        )
+        self.gaussian_overlap = gaussian_overlap
+        self.min_radius = min_radius
+        self.feature_map_size = tuple(int(value) for value in feature_map_size)
 
     def _compute_high_weight(self, s_roi):
         """k = w_h + (1 - w_h) * s_roi  ∈ [w_h, 1]"""
@@ -136,7 +157,7 @@ class QualityAwareMaskGeneratorV3(nn.Module):
                     gt_classes = cur_med_gts[:, -1].long()
                     is_small = torch.zeros(
                         len(gt_classes), dtype=torch.bool, device=device)
-                    for cls_id in self.SMALL_CLASSES:
+                    for cls_id in self.small_class_ids:
                         is_small |= (gt_classes == cls_id)
                     if is_small.any():
                         boost = cur_med_scores[is_small] * (1.0 - self.w_l)

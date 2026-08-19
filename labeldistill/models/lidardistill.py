@@ -73,8 +73,10 @@ class LabelDistill(nn.Module):
                  head_conf,
                  lidar_conf=None,
                  lidar_ckpt_path=None,
+                 lidar_checkpoint_prefix='model.centerpoint.',
                  is_train_depth=False,
                  temporal_kd_selection='legacy_half',
+                 distill_feature_channels=(128, 256),
                  teacher_proposal_cfg=None,
                  structured_output=False,
                  ):
@@ -102,8 +104,13 @@ class LabelDistill(nn.Module):
         self.temporal_frame_channels = backbone_conf['output_channels']
 
         distill_in_feature = head_conf['bev_neck_conf']['in_channels'][:2]
+        if len(distill_in_feature) != len(distill_feature_channels):
+            raise ValueError(
+                'distill_feature_channels must have one value per selected '
+                f'feature level: inputs={len(distill_in_feature)}, '
+                f'outputs={len(distill_feature_channels)}')
         self.distill_encoder_lidar = DistillAdaptor([x // 2 for x in distill_in_feature],
-                                                    out_features=[128, 256],
+                                                    out_features=list(distill_feature_channels),
                                                     stride=[1, 1]
                                                     )
         
@@ -120,7 +127,7 @@ class LabelDistill(nn.Module):
         # load pretrained parameters for lidar detection model
         lidar_params = torch.load(lidar_ckpt_path, map_location='cpu')
 
-        prefix = 'model.centerpoint.'
+        prefix = lidar_checkpoint_prefix
         load_keys = [k for k in lidar_params['state_dict'] if k.startswith(prefix)]
         if not load_keys:
             raise RuntimeError(

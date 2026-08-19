@@ -18,12 +18,28 @@ class ExperimentConfig:
 class RuntimeConfig:
     gpus: int = 1
     num_nodes: int = 1
+    distributed_backend: str = "nccl"
     batch_size_per_device: int = 8
+    accumulate_grad_batches: int = 1
+    limit_train_batches: Optional[int] = None
     max_epochs: int = 24
     precision: str = "16"
     gradient_clip_val: float = 35.0
+    deterministic: bool = True
     output_dir: str = MISSING
     resume_from: Optional[str] = None
+
+
+@dataclass
+class EMAConfig:
+    enabled: bool = True
+
+
+@dataclass
+class CheckpointConfig:
+    save_top_k: int = 3
+    save_last: bool = True
+    every_n_epochs: int = 1
 
 
 @dataclass
@@ -32,13 +48,10 @@ class DataConfig:
     root: str = MISSING
     train_info: str = "nuscenes_infos_train.pkl"
     val_info: str = "nuscenes_infos_val.pkl"
-    use_train_val: bool = False
-    split_purpose: str = "train"
+    split: str = "train"
     num_workers: int = 4
     use_cbgs: bool = False
     key_idxes: List[int] = field(default_factory=list)
-    return_depth: bool = True
-    return_lidar: bool = True
 
 
 @dataclass
@@ -46,8 +59,6 @@ class GeometryConfig:
     point_cloud_range: List[float] = MISSING
     lidar_voxel_size: List[float] = MISSING
     bev_output_stride: int = MISSING
-    student_bev_resolution: float = MISSING
-    gt_box_code_size: int = 9
 
 
 @dataclass
@@ -60,23 +71,18 @@ class ClassesConfig:
 class StudentConfig:
     type: str = MISSING
     output_channels: int = MISSING
-    key_frame_count: int = MISSING
     temporal_kd_selection: str = MISSING
-    distill_channels: List[int] = MISSING
-    structured_output: bool = True
 
 
 @dataclass
 class TeacherProposalConfig:
     score_threshold: float = 0.1
     max_num: int = 500
-    pre_max_size: int = 1000
     nms_type: str = "circle"
     min_radius: List[float] = MISSING
     post_max_size: int = 83
     post_center_range: List[float] = MISSING
     norm_bbox: bool = True
-    box_code_size: int = 9
 
 
 @dataclass
@@ -84,8 +90,12 @@ class TeacherConfig:
     type: str = MISSING
     checkpoint: str = MISSING
     checkpoint_prefix: str = "model.centerpoint."
-    distill_channels: List[int] = MISSING
     proposal: TeacherProposalConfig = field(default_factory=TeacherProposalConfig)
+
+
+@dataclass
+class DistillationConfig:
+    feature_channels: List[int] = MISSING
 
 
 @dataclass
@@ -98,7 +108,6 @@ class DistanceThresholdConfig:
 class MatchingConfig:
     type: str = "center_distance"
     class_policy: str = "same_task_group"
-    structured: bool = True
     selection: str = "highest_score"
     one_to_one: bool = False
     distance_thresholds: Dict[str, DistanceThresholdConfig] = field(
@@ -157,6 +166,7 @@ class SchedulerConfig:
 class DerivedConfig:
     global_batch_size: int = MISSING
     effective_learning_rate: float = MISSING
+    key_frame_count: int = MISSING
     feature_map_size: List[int] = MISSING
     bev_cell_size: List[float] = MISSING
     student_bev_input_channels: int = MISSING
@@ -168,11 +178,14 @@ class LabelDistillConfig:
     schema_version: int = MISSING
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    ema: EMAConfig = field(default_factory=EMAConfig)
+    checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     data: DataConfig = field(default_factory=DataConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     classes: ClassesConfig = field(default_factory=ClassesConfig)
     student: StudentConfig = field(default_factory=StudentConfig)
     teacher: TeacherConfig = field(default_factory=TeacherConfig)
+    distillation: DistillationConfig = field(default_factory=DistillationConfig)
     matching: MatchingConfig = field(default_factory=MatchingConfig)
     region: RegionConfig = field(default_factory=RegionConfig)
     loss: LossConfig = field(default_factory=LossConfig)

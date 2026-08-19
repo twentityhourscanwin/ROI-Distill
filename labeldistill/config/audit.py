@@ -18,6 +18,10 @@ from .validation import sha256_file
 _J4_CRITICAL_SOURCES = (
     "labeldistill/exps/nuscenes/base_exp.py",
     "labeldistill/exps/nuscenes/ablation_param/param_J4_wl05_wh08.py",
+    "labeldistill/presets/j4.py",
+    "labeldistill/builders/experiment_builder.py",
+    "labeldistill/builders/trainer_builder.py",
+    "labeldistill/experiments/j4.py",
     "labeldistill/models/lidardistill.py",
     "labeldistill/models/teacher_proposal_decoder.py",
     "labeldistill/refine_head/target_assigner/roi_distill.py",

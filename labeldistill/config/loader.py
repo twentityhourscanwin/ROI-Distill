@@ -116,6 +116,20 @@ def load_and_resolve_config(
     source_path = Path(path).expanduser().resolve()
     source_config = OmegaConf.load(source_path)
     merged, merged_bases, chain = _load_recursive(source_path, ())
+    claimed_derived = None
+    if "derived" in merged:
+        if source_path.name != "resolved_config.yaml":
+            raise ConfigLoadError(
+                f"{source_path}: derived is computed and cannot appear in source YAML")
+        # A saved resolved_config.yaml is a supported resume input. Never merge
+        # its derived values into the executable config: recompute them below.
+        claimed_derived = OmegaConf.to_container(merged.pop("derived"), resolve=True)
+    if overrides and any(
+        item.split("=", 1)[0] == "derived"
+        or item.split("=", 1)[0].startswith("derived.")
+        for item in overrides
+    ):
+        raise ConfigLoadError("derived values cannot be overridden")
 
     schema = OmegaConf.structured(LabelDistillConfig)
     try:
@@ -138,6 +152,11 @@ def load_and_resolve_config(
             source_path.parent,
         )
     validate_config(resolved, root, require_checkpoint=require_checkpoint)
+    if claimed_derived is not None and not overrides:
+        actual_derived = OmegaConf.to_container(resolved.derived, resolve=True)
+        if claimed_derived != actual_derived:
+            raise ConfigLoadError(
+                f"{source_path}: saved derived values do not match recomputed values")
     return ConfigBundle(
         config=resolved,
         project_root=root,

@@ -4,9 +4,9 @@
 > 当前迭代基线：`labeldistill/exps/nuscenes/ablation_param/param_J4_wl05_wh08.py`  
 > 说明：当前文件名包含 `wh08`，但实际配置是 `w_h=0.7`。后续 YAML 应按真实参数命名为 `j4_wl05_wh07`，旧名称只作为兼容别名保留。
 
-> 实施状态（2026-08-19）：配置基础设施首版已经落地，包括 typed schema、`_base_` 继承、dot-list override、跨字段校验、派生参数、config diff、resolved config 和环境/源码 SHA256 审计；`j4_wl05_wh07` 与 `j4_wl05_wh08` 已有 YAML。当前完整测试为 64 passed。
+> 实施状态（2026-08-19）：配置基础设施和 J4 builder 首版已经落地，包括 typed schema、`_base_` 继承、dot-list override、跨字段校验、派生参数、config diff、resolved config、环境/源码 SHA256 审计、versioned Python preset、通用 J4 experiment 以及 `tools/train.py`。`j4_wl05_wh07` 与 `j4_wl05_wh08` 已有 YAML。当前测试为 74 passed（因整套 pytest 在 DSW 上偶发长时间无输出，按 53 + 21 两组执行验证）。
 >
-> 当前边界：正式 `tools/train.py` builder、真实单 batch 数值快照以及 GPU/DDP smoke test 尚未完成。存在 YAML 文件不等于训练入口已经完全 YAML 化，在 builder 接管训练前不得批量删除 legacy Python entry。
+> 当前边界：builder 已能从 YAML 构造完整 143,582,490 参数 J4 模型，并与 legacy J4 的完整模型配置对象一致；已完成 `1 GPU × batch 1 × 1 step`、双 PPU Gloo DDP 一步训练，以及从 `global_step=1` 恢复到 `global_step=2` 的 resume 验收。仍需固化同一真实 batch 的 legacy/YAML 中间输出与 loss 数值快照；在这项等价性验收完成前不得批量删除 legacy Python entry。
 
 ## 1. 目标
 
@@ -191,6 +191,7 @@ experiment:
 runtime:
   gpus: 2
   num_nodes: 1
+  distributed_backend: gloo  # 当前 DSW PPU；NVIDIA 环境可 override 为 nccl
   batch_size_per_device: 16
   max_epochs: 24
   precision: 16
@@ -448,7 +449,7 @@ builder 负责：
 
 ### 阶段 A：冻结当前行为
 
-当前状态：**部分完成**。已有接口回归和 legacy J4 ↔ YAML 关键配置对齐测试，但真实 batch 的中间输出与 loss 快照仍未固化。
+当前状态：**部分完成**。已有接口回归、legacy J4 ↔ YAML 完整配置对象对齐，以及真实 batch 的新入口训练 smoke test；legacy/new 同 batch 的中间输出与 loss 快照仍未固化。
 
 1. 保留当前 J4 Python entry。
 2. 固定一个小型真实 batch 或记录一个 batch 的输入索引。
@@ -469,7 +470,7 @@ builder 负责：
 
 ### 阶段 C：迁移 J4
 
-当前状态：**尚未开始 builder 接管**。J4 YAML 已存在，但训练仍由 legacy J4 Python class 实现。
+当前状态：**builder 接管首版已完成，数值等价性验收进行中**。J4 YAML 已能通过 `tools/train.py` 构造通用 `J4Experiment`，不再依赖 legacy J4 class；preset 与 legacy 的 backbone/head/teacher/proposal 配置已做完整对象级 parity。单卡、双卡 DDP、checkpoint 保存和 resume 已通过，尚缺 legacy/new 同 batch 数值快照。
 
 1. 将 J4 的全部有效参数逐项迁移到 YAML。
 2. 通过 builder 构造与旧 J4 相同的模型和训练组件。
@@ -533,6 +534,8 @@ YAML 化迁移不能只以“程序能启动”为标准。至少需要验证：
 框架迁移阶段原则上应完全一致；若因移除旧的 256/128 截断产生差异，应只出现在超过旧上限的样本，并单独记录。
 
 ### 12.3 运行验证
+
+2026-08-19 实测：当前 DSW 的两张 `PPU-ZW810E` 通过 Gloo 完成单步 DDP；该环境无 `libcuda.so`，因此 NCCL 不适用。单卡训练、双卡 checkpoint 保存以及恢复后 `global_step: 1 → 2` 均已通过。
 
 - `1 GPU × batch 1` 前向/反向 smoke test。
 - `2 GPU` DDP smoke test。
@@ -737,4 +740,4 @@ YAML 管理适合当前项目，但关键不是简单地把 Python 字典复制�
 + 单 batch 数值回归
 ```
 
-配置基础设施首版已经完成。下一步应补齐阶段 A 的真实 batch 快照，并进入阶段 C，让通用 builder 真正接管当前 J4。与此同时可以独立执行第 14.3 节的生成物清理，但 legacy 实验脚本必须等对应 YAML 实验完成 builder、checkpoint 和数值验收后，再按实验族分批归档。
+配置基础设施和 J4 builder 首版已经完成，GPU 前反向、双卡 DDP、checkpoint 与 resume 验收也已通过。下一步应集中补齐阶段 A 的 legacy/new 同一真实 batch 数值快照和评测入口。与此同时可以独立执行第 14.3 节的生成物清理，但 legacy 实验脚本必须等对应 YAML 实验完成数值等价性验收后，再按实验族分批归档。

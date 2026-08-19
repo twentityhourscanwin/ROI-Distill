@@ -16,12 +16,25 @@ experiment:
 runtime:
   gpus: 2
   num_nodes: 1
+  # The current DSW PPU runtime uses torch.distributed Gloo; NVIDIA jobs may
+  # override this with runtime.distributed_backend=nccl.
+  distributed_backend: gloo
   batch_size_per_device: 16
+  accumulate_grad_batches: 1
   max_epochs: 24
   precision: "16"
   gradient_clip_val: 35.0
+  deterministic: true
   output_dir: outputs/j4_wl05_wh07
   resume_from: null
+
+ema:
+  enabled: true
+
+checkpoint:
+  save_top_k: 3
+  save_last: true
+  every_n_epochs: 1
 
 optimizer:
   type: AdamW

@@ -684,7 +684,13 @@ class NuscDetDataset(Dataset):
             gt_labels.append(
                 self.classes.index(map_name_from_general_to_detection[
                     ann_info['category_name']]))
-        return torch.Tensor(gt_boxes), torch.tensor(gt_labels)
+        # Preserve the box-code dimension for valid no-GT samples.  A plain
+        # torch.Tensor([]) has shape (0,), which breaks downstream structured
+        # matching and DDP when one rank receives an empty scene.
+        boxes = torch.as_tensor(
+            np.asarray(gt_boxes, dtype=np.float32).reshape(-1, 9))
+        labels = torch.as_tensor(np.asarray(gt_labels, dtype=np.int64))
+        return boxes, labels
 
     def choose_cams(self):
         """Choose cameras randomly.

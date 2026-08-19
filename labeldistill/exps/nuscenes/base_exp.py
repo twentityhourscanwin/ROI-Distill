@@ -191,6 +191,7 @@ class LabelDistillModel(LightningModule):
                  data_root='data/nuScenes',
                  eval_interval=1,
                  batch_size_per_device=8,
+                 num_workers=4,
                  class_names=CLASSES,
                  backbone_conf=backbone_conf,
                  head_conf=head_conf,
@@ -203,11 +204,13 @@ class LabelDistillModel(LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=[
             'backbone_conf', 'head_conf', 'ida_aug_conf', 'bda_aug_conf',
-            'build_model'
+            'build_model', 'config', 'model', 'matcher', 'scaler',
+            'mask_generator'
         ])
         self.gpus = gpus
         self.eval_interval = eval_interval
         self.batch_size_per_device = batch_size_per_device
+        self.num_workers = num_workers
         self.data_root = data_root
         self.basic_lr_per_img = 2e-4 / 64
         self.class_names = deepcopy(class_names)
@@ -432,7 +435,7 @@ class LabelDistillModel(LightningModule):
         train_loader = torch.utils.data.DataLoader(
             train_dataset,
             batch_size=self.batch_size_per_device,
-            num_workers=4,
+            num_workers=self.num_workers,
             drop_last=True,
             shuffle=False,
             collate_fn=partial(collate_fn,
@@ -460,7 +463,7 @@ class LabelDistillModel(LightningModule):
             batch_size=self.batch_size_per_device,
             shuffle=False,
             collate_fn=partial(collate_fn, is_return_depth=self.use_fusion),
-            num_workers=4,
+            num_workers=self.num_workers,
             sampler=None,
         )
         return val_loader
@@ -486,7 +489,7 @@ class LabelDistillModel(LightningModule):
             batch_size=self.batch_size_per_device,
             shuffle=False,
             collate_fn=partial(collate_fn, is_return_depth=self.use_fusion),
-            num_workers=4,
+            num_workers=self.num_workers,
             sampler=None,
         )
         return predict_loader

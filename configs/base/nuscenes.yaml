@@ -5,20 +5,15 @@ data:
   root: data/nuScenes
   train_info: nuscenes_infos_train.pkl
   val_info: nuscenes_infos_val.pkl
-  use_train_val: false
-  split_purpose: train
+  split: train
   num_workers: 4
   use_cbgs: false
   key_idxes: [-2, -4, -6, -8]
-  return_depth: true
-  return_lidar: true
 
 geometry:
   point_cloud_range: [-51.2, -51.2, -5.0, 51.2, 51.2, 3.0]
   lidar_voxel_size: [0.1, 0.1, 0.2]
   bev_output_stride: 8
-  student_bev_resolution: 0.8
-  gt_box_code_size: 9
 
 classes:
   names:

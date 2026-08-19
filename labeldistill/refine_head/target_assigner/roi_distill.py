@@ -112,19 +112,69 @@ class MatchResult(Mapping):
 class ProposalTargetLayer(nn.Module):
     """Match each GT to the best teacher proposal from its CenterPoint task."""
 
-    def __init__(self, roi_sampler_cfg=None, structured=False):
+    DEFAULT_CLASS_NAMES = (
+        'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+        'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone',
+    )
+    DEFAULT_CLASS_GROUPS = (
+        ('car',),
+        ('truck', 'construction_vehicle'),
+        ('bus', 'trailer'),
+        ('barrier',),
+        ('motorcycle', 'bicycle'),
+        ('pedestrian', 'traffic_cone'),
+    )
+    DEFAULT_DISTANCE_THRESHOLDS = {
+        'car': {'high': 2.0, 'medium': 4.0},
+        'truck': {'high': 2.5, 'medium': 4.0},
+        'construction_vehicle': {'high': 2.5, 'medium': 4.0},
+        'bus': {'high': 3.5, 'medium': 4.0},
+        'trailer': {'high': 2.5, 'medium': 4.0},
+        'barrier': {'high': 0.5, 'medium': 2.5},
+        'motorcycle': {'high': 1.0, 'medium': 2.5},
+        'bicycle': {'high': 1.0, 'medium': 2.5},
+        'pedestrian': {'high': 0.5, 'medium': 2.0},
+        'traffic_cone': {'high': 0.5, 'medium': 2.0},
+    }
+
+    def __init__(self, roi_sampler_cfg=None, structured=False, *,
+                 class_names=None, class_groups=None,
+                 distance_thresholds=None, class_policy='same_task_group',
+                 selection='highest_score', one_to_one=False):
         super().__init__()
         # Kept only so old experiment configs can still construct this module.
         self.roi_sampler_cfg = roi_sampler_cfg
         self.structured = structured
+        if class_policy != 'same_task_group':
+            raise ValueError(
+                f'Unsupported class_policy={class_policy!r}; '
+                'only same_task_group is implemented')
+        if selection != 'highest_score':
+            raise ValueError(
+                f'Unsupported selection={selection!r}; '
+                'only highest_score is implemented')
+        if one_to_one:
+            raise ValueError('one_to_one matching is not implemented')
+        self.class_policy = class_policy
+        self.selection = selection
+        self.one_to_one = one_to_one
 
+        class_names = tuple(class_names or self.DEFAULT_CLASS_NAMES)
+        class_groups = tuple(class_groups or self.DEFAULT_CLASS_GROUPS)
+        distance_thresholds = distance_thresholds or self.DEFAULT_DISTANCE_THRESHOLDS
+        name_to_id = {name: idx for idx, name in enumerate(class_names)}
+        if len(name_to_id) != len(class_names):
+            raise ValueError('class_names must be unique')
+        flattened_groups = [name for group in class_groups for name in group]
+        if set(flattened_groups) != set(class_names) or len(flattened_groups) != len(class_names):
+            raise ValueError('class_groups must cover class_names exactly once')
+        if set(distance_thresholds) != set(class_names):
+            raise ValueError('distance_thresholds must cover class_names exactly once')
+
+        self.class_names = class_names
         self.class_groups = [
-            {'class_ids': [0]},
-            {'class_ids': [1, 2]},
-            {'class_ids': [3, 4]},
-            {'class_ids': [5]},
-            {'class_ids': [6, 7]},
-            {'class_ids': [8, 9]},
+            {'class_ids': [name_to_id[name] for name in group]}
+            for group in class_groups
         ]
         self.class_to_group = {}
         for group_idx, group in enumerate(self.class_groups):
@@ -132,35 +182,30 @@ class ProposalTargetLayer(nn.Module):
                 self.class_to_group[class_id] = group_idx
 
         self.distance_thresholds = {
-            0: {'high': 2.0, 'medium': 4.0},
-            1: {'high': 2.5, 'medium': 4.0},
-            2: {'high': 2.5, 'medium': 4.0},
-            3: {'high': 3.5, 'medium': 4.0},
-            4: {'high': 2.5, 'medium': 4.0},
-            5: {'high': 0.5, 'medium': 2.5},
-            6: {'high': 1.0, 'medium': 2.5},
-            7: {'high': 1.0, 'medium': 2.5},
-            8: {'high': 0.5, 'medium': 2.0},
-            9: {'high': 0.5, 'medium': 2.0},
+            name_to_id[name]: {
+                'high': float(values['high']),
+                'medium': float(values['medium']),
+            }
+            for name, values in distance_thresholds.items()
         }
         self.register_buffer(
             '_class_group_lookup',
             torch.tensor([
-                self.class_to_group[class_id] for class_id in range(10)
+                self.class_to_group[class_id] for class_id in range(len(class_names))
             ], dtype=torch.long),
             persistent=False)
         self.register_buffer(
             '_high_threshold_lookup',
             torch.tensor([
                 self.distance_thresholds[class_id]['high']
-                for class_id in range(10)
+                for class_id in range(len(class_names))
             ]),
             persistent=False)
         self.register_buffer(
             '_medium_threshold_lookup',
             torch.tensor([
                 self.distance_thresholds[class_id]['medium']
-                for class_id in range(10)
+                for class_id in range(len(class_names))
             ]),
             persistent=False)
 

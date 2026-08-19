@@ -1,7 +1,6 @@
 matching:
   type: center_distance
   class_policy: same_task_group
-  structured: true
   selection: highest_score
   one_to_one: false
   distance_thresholds:
@@ -15,6 +14,9 @@ matching:
     bicycle:              {high: 1.0, medium: 2.5}
     pedestrian:           {high: 0.5, medium: 2.0}
     traffic_cone:         {high: 0.5, medium: 2.0}
+
+distillation:
+  feature_channels: [128, 256]
 
 region:
   scaler:

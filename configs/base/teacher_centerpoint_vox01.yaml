@@ -2,14 +2,11 @@ teacher:
   type: frozen_centerpoint
   checkpoint: ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth
   checkpoint_prefix: model.centerpoint.
-  distill_channels: [128, 256]
   proposal:
     score_threshold: 0.1
     max_num: 500
-    pre_max_size: 1000
     nms_type: circle
     min_radius: [4, 12, 10, 1, 0.85, 0.175]
     post_max_size: 83
     post_center_range: [-61.2, -61.2, -10.0, 61.2, 61.2, 10.0]
     norm_bbox: true
-    box_code_size: 9

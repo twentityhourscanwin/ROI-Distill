@@ -55,10 +55,10 @@ def test_j4_yaml_matches_legacy_constructor(monkeypatch, tmp_path):
     assert config.teacher.checkpoint == checkpoint.removeprefix("./")
     assert config.teacher.proposal.score_threshold == bbox_coder["score_threshold"]
     assert config.teacher.proposal.max_num == bbox_coder["max_num"]
-    assert config.teacher.proposal.pre_max_size == teacher_test_cfg["pre_max_size"]
+    assert teacher_test_cfg["pre_max_size"] == 1000
     assert config.teacher.proposal.post_max_size == proposal["post_max_size"]
     assert config.teacher.proposal.min_radius == proposal["min_radius"]
-    assert config.teacher.proposal.box_code_size == bbox_coder["code_size"]
+    assert bbox_coder["code_size"] == 9
     assert config.geometry.point_cloud_range == lidar_conf["voxel_layer"][
         "point_cloud_range"
     ]

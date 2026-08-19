@@ -27,11 +27,11 @@ def test_j4_baseline_resolves_real_derived_values():
     assert config.region.mask.w_high == 0.7
     assert config.student.temporal_kd_selection == "legacy_half"
     assert config.teacher.proposal.max_num == 500
-    assert config.teacher.proposal.pre_max_size == 1000
     assert config.derived.global_batch_size == 32
     assert config.derived.effective_learning_rate == pytest.approx(2e-4)
     assert list(config.derived.feature_map_size) == [128, 128]
     assert list(config.derived.bev_cell_size) == [0.8, 0.8]
+    assert config.derived.key_frame_count == 5
     assert config.derived.student_bev_input_channels == 750
 
 
@@ -61,9 +61,10 @@ def test_inherited_ablation_and_cli_override_have_leaf_diff():
     "override, message",
     [
         ("region.mask.w_high=1.0", "0 < w_low <= w_high < 1"),
-        ("teacher.proposal.box_code_size=10", "box_code_size must be 9"),
-        ("student.distill_channels=[128]", "distill channels must match"),
-        ("data.split_purpose=trainval", "use_train_val and data.split_purpose"),
+        ("geometry.bev_output_stride=0", "bev_output_stride must be positive"),
+        ("distillation.feature_channels=[]", "at least one feature level"),
+        ("matching.one_to_one=true", "one_to_one=true is not implemented"),
+        ("matching.selection=nearest_distance", "is not supported"),
         ("experiment.name=j4_wl05_wh08", "name encodes w_high=0.8"),
     ],
 )
@@ -82,6 +83,16 @@ def test_unknown_schema_key_is_rejected():
         load_and_resolve_config(
             PROJECT_ROOT / "configs/experiments/j4_wl05_wh07.yaml",
             ["typo.value=1"],
+            project_root=PROJECT_ROOT,
+            require_checkpoint=False,
+        )
+
+
+def test_derived_values_cannot_be_overridden():
+    with pytest.raises(ConfigLoadError, match="derived values cannot be overridden"):
+        load_and_resolve_config(
+            PROJECT_ROOT / "configs/experiments/j4_wl05_wh07.yaml",
+            ["derived.global_batch_size=999"],
             project_root=PROJECT_ROOT,
             require_checkpoint=False,
         )
@@ -117,3 +128,40 @@ def test_audit_artifacts_include_exact_source_and_resolved_config(tmp_path):
     assert resolved.derived.feature_map_size == [128, 128]
     assert diff.changes["region.mask.w_high"].base == 0.7
     assert "source_sha256[" in environment
+
+
+def test_saved_resolved_config_is_a_valid_recomputed_input(tmp_path):
+    bundle = load_and_resolve_config(
+        PROJECT_ROOT / "configs/experiments/j4_wl05_wh07.yaml",
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+    resolved_path = tmp_path / "resolved_config.yaml"
+    OmegaConf.save(bundle.config, resolved_path, resolve=True)
+
+    reloaded = load_and_resolve_config(
+        resolved_path,
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+    assert OmegaConf.to_container(reloaded.config, resolve=True) == OmegaConf.to_container(
+        bundle.config, resolve=True)
+
+
+def test_tampered_resolved_derived_values_are_rejected(tmp_path):
+    bundle = load_and_resolve_config(
+        PROJECT_ROOT / "configs/experiments/j4_wl05_wh07.yaml",
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+    tampered = OmegaConf.create(OmegaConf.to_container(bundle.config, resolve=True))
+    tampered.derived.global_batch_size = 999
+    resolved_path = tmp_path / "resolved_config.yaml"
+    OmegaConf.save(tampered, resolved_path, resolve=True)
+
+    with pytest.raises(ConfigLoadError, match="do not match recomputed values"):
+        load_and_resolve_config(
+            resolved_path,
+            project_root=PROJECT_ROOT,
+            require_checkpoint=False,
+        )

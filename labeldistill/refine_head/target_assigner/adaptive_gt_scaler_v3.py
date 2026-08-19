@@ -23,22 +23,41 @@ class AdaptiveGTScalerV3:
 
     """
 
-    def __init__(self, mu=0.15, s_vel=0.2, r_max=50.0):
+    DEFAULT_CLASS_NAMES = (
+        'car', 'truck', 'construction_vehicle', 'bus', 'trailer',
+        'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone',
+    )
+    DEFAULT_DISTANCE_THRESHOLDS = {
+        'car': {'high': 2.0, 'medium': 4.0},
+        'truck': {'high': 2.5, 'medium': 4.0},
+        'construction_vehicle': {'high': 2.5, 'medium': 4.0},
+        'bus': {'high': 3.5, 'medium': 4.0},
+        'trailer': {'high': 2.5, 'medium': 4.0},
+        'barrier': {'high': 0.5, 'medium': 2.5},
+        'motorcycle': {'high': 1.0, 'medium': 2.5},
+        'bicycle': {'high': 1.0, 'medium': 2.5},
+        'pedestrian': {'high': 0.5, 'medium': 2.0},
+        'traffic_cone': {'high': 0.5, 'medium': 2.0},
+    }
+
+    def __init__(self, mu=0.15, s_vel=0.2, r_max=50.0, *,
+                 class_names=None, distance_thresholds=None):
         self.mu = mu
         self.s_vel = s_vel
         self.r_max = r_max
 
+        class_names = tuple(class_names or self.DEFAULT_CLASS_NAMES)
+        distance_thresholds = distance_thresholds or self.DEFAULT_DISTANCE_THRESHOLDS
+        if len(set(class_names)) != len(class_names):
+            raise ValueError('class_names must be unique')
+        if set(distance_thresholds) != set(class_names):
+            raise ValueError('distance_thresholds must cover class_names exactly once')
         self.distance_thresholds = {
-            0: {'high': 2.0, 'medium': 4.0},   # car
-            1: {'high': 2.5, 'medium': 4.0},   # truck
-            2: {'high': 2.5, 'medium': 4.0},   # construction_vehicle
-            3: {'high': 3.5, 'medium': 4.0},   # bus
-            4: {'high': 2.5, 'medium': 4.0},   # trailer
-            5: {'high': 0.5, 'medium': 2.5},   # barrier
-            6: {'high': 1.0, 'medium': 2.5},   # motorcycle
-            7: {'high': 1.0, 'medium': 2.5},   # bicycle
-            8: {'high': 0.5, 'medium': 2.0},   # pedestrian
-            9: {'high': 0.5, 'medium': 2.0},   # traffic_cone
+            class_id: {
+                'high': float(distance_thresholds[name]['high']),
+                'medium': float(distance_thresholds[name]['medium']),
+            }
+            for class_id, name in enumerate(class_names)
         }
 
     @staticmethod

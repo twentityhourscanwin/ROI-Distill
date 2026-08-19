@@ -4,7 +4,7 @@ import hashlib
 import math
 import re
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import List
 
 from omegaconf import DictConfig, OmegaConf
 
@@ -79,16 +79,66 @@ def validate_config(
         "runtime.batch_size_per_device must be positive",
         errors,
     )
-    _require(config.runtime.max_epochs > 0, "runtime.max_epochs must be positive", errors)
-    _require(config.data.num_workers >= 0, "data.num_workers must be non-negative", errors)
     _require(
-        config.data.split_purpose in {"train", "trainval"},
-        "data.split_purpose must be 'train' or 'trainval'",
+        config.runtime.accumulate_grad_batches > 0,
+        "runtime.accumulate_grad_batches must be positive",
         errors,
     )
+    if config.runtime.limit_train_batches is not None:
+        _require(
+            config.runtime.limit_train_batches > 0,
+            "runtime.limit_train_batches must be positive when set",
+            errors,
+        )
+    _require(config.runtime.max_epochs > 0, "runtime.max_epochs must be positive", errors)
     _require(
-        config.data.use_train_val == (config.data.split_purpose == "trainval"),
-        "data.use_train_val and data.split_purpose disagree",
+        config.runtime.gradient_clip_val >= 0,
+        "runtime.gradient_clip_val must be non-negative",
+        errors,
+    )
+    _require(config.checkpoint.save_top_k >= -1, "checkpoint.save_top_k must be >= -1", errors)
+    _require(
+        config.checkpoint.every_n_epochs > 0,
+        "checkpoint.every_n_epochs must be positive",
+        errors,
+    )
+    _require(config.data.num_workers >= 0, "data.num_workers must be non-negative", errors)
+    _require(
+        config.data.split in {"train", "trainval"},
+        "data.split must be 'train' or 'trainval'",
+        errors,
+    )
+
+    supported_values = {
+        "data.dataset": (config.data.dataset, {"nuscenes"}),
+        "student.type": (config.student.type, {"camera_bevdepth_r50"}),
+        "student.temporal_kd_selection": (
+            config.student.temporal_kd_selection,
+            {"legacy_half", "current_t2_half_t6"},
+        ),
+        "teacher.type": (config.teacher.type, {"frozen_centerpoint"}),
+        "teacher.proposal.nms_type": (config.teacher.proposal.nms_type, {"circle"}),
+        "matching.type": (config.matching.type, {"center_distance"}),
+        "matching.class_policy": (config.matching.class_policy, {"same_task_group"}),
+        "matching.selection": (config.matching.selection, {"highest_score"}),
+        "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
+        "region.mask.type": (config.region.mask.type, {"quality_aware_mask_v3"}),
+        "optimizer.type": (config.optimizer.type, {"AdamW"}),
+        "scheduler.type": (config.scheduler.type, {"MultiStepLR"}),
+        "runtime.precision": (
+            str(config.runtime.precision),
+            {"16", "16-mixed", "bf16", "bf16-mixed", "32", "64"},
+        ),
+        "runtime.distributed_backend": (
+            config.runtime.distributed_backend,
+            {"nccl", "gloo", "mpi", "ucc"},
+        ),
+    }
+    for path, (value, supported) in supported_values.items():
+        _require(value in supported, f"{path}={value!r} is not supported", errors)
+    _require(
+        not config.matching.one_to_one,
+        "matching.one_to_one=true is not implemented",
         errors,
     )
 
@@ -104,6 +154,16 @@ def validate_config(
     _require(
         config.region.mask.max_distance > 0,
         "region.mask.max_distance must be positive",
+        errors,
+    )
+    _require(
+        0 < config.region.mask.gaussian_overlap <= 1,
+        "region.mask.gaussian_overlap must be in (0, 1]",
+        errors,
+    )
+    _require(
+        config.region.mask.min_radius >= 0,
+        "region.mask.min_radius must be non-negative",
         errors,
     )
     _require(
@@ -131,6 +191,22 @@ def validate_config(
         errors,
     )
     _require(
+        0 <= config.teacher.proposal.score_threshold < 1,
+        "teacher.proposal.score_threshold must be in [0, 1)",
+        errors,
+    )
+    _require(config.teacher.proposal.max_num > 0, "teacher.proposal.max_num must be positive", errors)
+    _require(
+        config.teacher.proposal.post_max_size > 0,
+        "teacher.proposal.post_max_size must be positive",
+        errors,
+    )
+    _require(
+        len(config.teacher.proposal.post_center_range) == 6,
+        "teacher.proposal.post_center_range must have 6 values",
+        errors,
+    )
+    _require(
         set(config.matching.distance_thresholds.keys()) == set(class_names),
         "matching.distance_thresholds must cover every class exactly once",
         errors,
@@ -143,36 +219,49 @@ def validate_config(
         )
 
     _require(
-        config.geometry.gt_box_code_size == 9,
-        "geometry.gt_box_code_size must be 9",
-        errors,
-    )
-    _require(
-        config.teacher.proposal.box_code_size == 9,
-        "teacher.proposal.box_code_size must be 9",
-        errors,
-    )
-    _require(
-        list(config.student.distill_channels) == list(config.teacher.distill_channels),
-        "teacher/student distill channels must match level by level",
-        errors,
-    )
-    _require(
-        len(config.student.distill_channels) > 0,
+        len(config.distillation.feature_channels) > 0,
         "distillation needs at least one feature level",
         errors,
     )
     _require(
-        config.student.key_frame_count == len(config.data.key_idxes) + 1,
-        "student.key_frame_count must equal len(data.key_idxes) + 1",
+        list(config.distillation.feature_channels) == [128, 256],
+        "camera_bevdepth_r50/frozen_centerpoint requires "
+        "distillation.feature_channels=[128, 256]",
         errors,
     )
+    _require(
+        all(channel > 0 for channel in config.distillation.feature_channels),
+        "distillation.feature_channels must be positive",
+        errors,
+    )
+    _require(config.student.output_channels > 0, "student.output_channels must be positive", errors)
+    _require(
+        config.student.output_channels % 2 == 0,
+        "student.output_channels must be even for temporal KD selection",
+        errors,
+    )
+    if config.student.temporal_kd_selection == "current_t2_half_t6":
+        _require(
+            len(config.data.key_idxes) == 4,
+            "current_t2_half_t6 requires exactly five frames",
+            errors,
+        )
 
     point_range = list(config.geometry.point_cloud_range)
     voxel_size = list(config.geometry.lidar_voxel_size)
     _require(len(point_range) == 6, "geometry.point_cloud_range must have 6 values", errors)
     _require(len(voxel_size) == 3, "geometry.lidar_voxel_size must have 3 values", errors)
-    if len(point_range) == 6 and len(voxel_size) == 3:
+    _require(
+        config.geometry.bev_output_stride > 0,
+        "geometry.bev_output_stride must be positive",
+        errors,
+    )
+    if (
+        len(point_range) == 6
+        and len(voxel_size) == 3
+        and all(value > 0 for value in voxel_size)
+        and config.geometry.bev_output_stride > 0
+    ):
         extents = [point_range[3] - point_range[0], point_range[4] - point_range[1]]
         _require(all(extent > 0 for extent in extents), "BEV extents must be positive", errors)
         _require(all(value > 0 for value in voxel_size), "voxel sizes must be positive", errors)
@@ -180,17 +269,14 @@ def validate_config(
             voxel_size[0] * config.geometry.bev_output_stride,
             voxel_size[1] * config.geometry.bev_output_stride,
         ]
-        _require(
-            all(
-                math.isclose(value, config.geometry.student_bev_resolution)
-                for value in cell_size
-            ),
-            "teacher and student BEV physical cell sizes disagree",
-            errors,
+        feature_map_float = (
+            [extent / cell for extent, cell in zip(extents, cell_size)]
+            if all(extent > 0 for extent in extents)
+            else []
         )
-        feature_map_float = [extent / cell for extent, cell in zip(extents, cell_size)]
         _require(
-            all(math.isclose(value, round(value)) for value in feature_map_float),
+            bool(feature_map_float)
+            and all(math.isclose(value, round(value)) for value in feature_map_float),
             "BEV range must divide evenly by voxel size × stride",
             errors,
         )
@@ -217,18 +303,22 @@ def validate_config(
         config.runtime.gpus
         * config.runtime.num_nodes
         * config.runtime.batch_size_per_device
+        * config.runtime.accumulate_grad_batches
     )
     config.derived.global_batch_size = global_batch_size
     config.derived.effective_learning_rate = (
         config.optimizer.base_lr_at_global_batch_64 * global_batch_size / 64
     )
+    config.derived.key_frame_count = len(config.data.key_idxes) + 1
     config.derived.feature_map_size = feature_map_size
     config.derived.bev_cell_size = cell_size
     config.derived.student_bev_input_channels = (
-        config.student.output_channels * config.student.key_frame_count
+        config.student.output_channels * config.derived.key_frame_count
     )
     config.derived.teacher_checkpoint_sha256 = (
-        sha256_file(checkpoint_path) if checkpoint_path.is_file() else "unavailable"
+        sha256_file(checkpoint_path)
+        if require_checkpoint and checkpoint_path.is_file()
+        else "unavailable"
     )
 
     # Resolve all interpolations and mandatory values before returning.

@@ -1,7 +1,4 @@
 student:
   type: camera_bevdepth_r50
   output_channels: 150
-  key_frame_count: 5
   temporal_kd_selection: legacy_half
-  distill_channels: [128, 256]
-  structured_output: true
