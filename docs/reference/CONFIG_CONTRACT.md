@@ -48,12 +48,13 @@
 
 ## 当前验证结论
 
-- 当前唯一 baseline 是 `center_value_baseline_cp50200.yaml`。
+- 当前候选 baseline 是 `b1_teacher_value_no_scale.yaml`；B0、B1T、B2 均只继承并覆盖一个实验变量。
 - matching 使用 exact-class、score-first nearest-unmatched、严格 `< tau` 和 one-to-one。
 - teacher value 使用 normalized squared margin，不乘 teacher score。
-- feature KD 使用 per-GT Gaussian 空间归一化和全局 effective `N_gt` 固定计数归一化。
+- feature KD 使用 per-GT Gaussian 空间归一化和 effective `N_gt` 固定计数归一化。
 - BDA 物理距离、official class range、空 GT、Gaussian 面积不变性和 value-gradient 比例均有 contract test。
-- 清理旧消融门禁后，`pytest -q tests` 为 `107 passed`；单卡 FP16 和双卡 DDP 单步训练均已通过。
-- 旧网络派生的 `ablation_module`、`ablation_param` 配置、入口、迁移测试和归档源码已于 2026-08-23 移除。
-- legacy J4 YAML 只承担历史兼容和对照，不再是新消融的母配置。
-- ConvNeXt-B/J4 仍为独立历史配置；迁移到 center-value 之前不与当前 baseline 直接比较。
+- 2026-08-26 在无 GPU 环境中按测试文件运行，完整 `tests/` 共 `120 passed`；组合式 `pytest -q` 在该环境无输出停滞，因此不能把它描述成单次完整测试命令成功。
+- 旧 `ablation_module`、`ablation_param` 和 `find_best_v3` 入口已从当前代码移除，结果只保留在历史台账和 archive。
+- `center_value_baseline_cp50200.yaml`、legacy J4 和 ConvNeXt-B 配置只承担历史兼容或独立研究用途，不是当前 B 系列母配置。
+
+当前系统与实验状态以 `docs/CURRENT_BASELINE.md` 和 `docs/EXPERIMENT_LEDGER.md` 为入口；本文件只负责配置到代码消费者的技术契约。
