@@ -21,7 +21,7 @@
 
 ## 2. 历史结果（不可与当前 B 系列直接比较）
 
-以下结果来自旧网络、旧教师/数据或不同帧数与损失口径，状态统一为 `Historical / Invalid for current comparison`。原始明细保存在 `docs/archive/2026-08/历史实验结果表.md`。
+以下结果来自旧网络、旧教师/数据或不同帧数与损失口径，状态统一为 `Historical / Invalid for current comparison`。这里保留必要摘要；更完整的原始表格可从整理前 Git 快照 `d27eed6` 追溯。
 
 ### 旧模块消融
 

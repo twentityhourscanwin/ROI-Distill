@@ -30,7 +30,6 @@ python tools/train.py \
 - [DESIGN_LOG.md](docs/DESIGN_LOG.md)：网络与算法决策、分支演进及待验证问题。
 - [EXPERIMENT_LEDGER.md](docs/EXPERIMENT_LEDGER.md)：实验运行、指标、产物与结论的唯一台账。
 - [docs/README.md](docs/README.md)：文档维护和 Git 工作流。
-- [CONFIG_CONTRACT.md](docs/reference/CONFIG_CONTRACT.md)：YAML 字段到代码消费者与测试的对应关系。
 
 ## 仓库结构
 
