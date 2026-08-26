@@ -109,7 +109,12 @@ class LabelDistill(nn.Module):
                 'distill_feature_channels must have one value per selected '
                 f'feature level: inputs={len(distill_in_feature)}, '
                 f'outputs={len(distill_feature_channels)}')
-        self.distill_encoder_lidar = DistillAdaptor([x // 2 for x in distill_in_feature],
+        adaptor_in_feature = (
+            distill_in_feature
+            if temporal_kd_selection == 'full'
+            else [x // 2 for x in distill_in_feature]
+        )
+        self.distill_encoder_lidar = DistillAdaptor(adaptor_in_feature,
                                                     out_features=list(distill_feature_channels),
                                                     stride=[1, 1]
                                                     )
@@ -234,7 +239,9 @@ class LabelDistill(nn.Module):
             # [1] Shape: torch.Size([4, 300, 64, 64])
             # [2] Shape: torch.Size([4, 600, 32, 32])
             # '''
-            if self.temporal_kd_selection == 'current_t2_half_t6':
+            if self.temporal_kd_selection == 'full':
+                first_level_kd = backbone_out[0]
+            elif self.temporal_kd_selection == 'current_t2_half_t6':
                 first_level_kd = select_temporal_kd_channels(
                     backbone_out[0], self.temporal_frame_channels)
             elif self.temporal_kd_selection == 'legacy_half':
@@ -245,12 +252,16 @@ class LabelDistill(nn.Module):
                     'Unknown temporal_kd_selection: '
                     f'{self.temporal_kd_selection!r}')
 
-            c2 = backbone_out[1].shape[1] // 2
+            second_level_kd = (
+                backbone_out[1]
+                if self.temporal_kd_selection == 'full'
+                else backbone_out[1][:, :backbone_out[1].shape[1] // 2]
+            )
 
             # adaptor
             distill_feats_lidar = self.distill_encoder_lidar([
                 first_level_kd,
-                backbone_out[1][:, :c2],
+                second_level_kd,
             ])
                 
             # '''
@@ -317,7 +328,8 @@ class LabelDistill(nn.Module):
         """
         return self.head.loss(targets, preds_dicts)
 
-    def response_loss(self, targets, preds_dicts, teacher_dicts):
+    def response_loss(self, targets, preds_dicts, teacher_dicts,
+                      gt_labels=None, response_valid_masks=None):
         """Loss function for BEVDepth.
 
         Args:
@@ -329,7 +341,13 @@ class LabelDistill(nn.Module):
         Returns:
             dict[str:torch.Tensor]: Loss of heatmap and bbox of each task.
         """
-        return self.head.response_loss(targets, preds_dicts, teacher_dicts)
+        return self.head.response_loss(
+            targets,
+            preds_dicts,
+            teacher_dicts,
+            gt_labels=gt_labels,
+            response_valid_masks=response_valid_masks,
+        )
     
     def distill_loss(self, targets, preds_dicts, teacher_dicts):
 

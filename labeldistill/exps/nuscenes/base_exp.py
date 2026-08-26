@@ -285,28 +285,34 @@ class LabelDistillModel(LightningModule):
         self.log('depth_loss', depth_loss)
         return detection_loss + depth_loss
 
-    def get_depth_loss(self, depth_labels, depth_preds):
-        depth_labels = self.get_downsampled_gt_depth(depth_labels)
+    def get_depth_loss(self, depth_labels, depth_preds, sigma=1.5):
+        """Compute the shared Gaussian-label depth classification loss.
+
+        DepthNet returns raw logits.  Valid projected LiDAR depths are kept as
+        continuous bin indices, converted to Gaussian targets, and supervised
+        with KL divergence against the log-softmax depth distribution.
+        """
+        depth_indices, fg_mask = self.get_downsampled_gt_depth(depth_labels)
+        if not fg_mask.any():
+            # Keep the zero connected to DepthNet for a valid backward pass.
+            return depth_preds.sum() * 0.0
+
+        soft_labels = self.create_soft_labels(
+            depth_indices, fg_mask, sigma=sigma)
         depth_preds = depth_preds.permute(0, 2, 3, 1).contiguous().view(
             -1, self.depth_channels)
-        fg_mask = torch.max(depth_labels, dim=1).values > 0.0
 
         with autocast(enabled=False):
-            depth_loss = (F.binary_cross_entropy_with_logits(
-                depth_preds[fg_mask].float(),
-                depth_labels[fg_mask].float(),
-                reduction='none',
-            ).sum() / max(1.0, fg_mask.sum()))
+            depth_loss = F.kl_div(
+                F.log_softmax(depth_preds[fg_mask].float(), dim=1),
+                soft_labels.float(),
+                reduction='batchmean',
+            )
 
         return 3.0 * depth_loss
 
     def get_downsampled_gt_depth(self, gt_depths):
-        """
-        Input:
-            gt_depths: [B, N, H, W]
-        Output:
-            gt_depths: [B*N*h*w, d]
-        """
+        """Downsample LiDAR depth and return continuous bins plus valid mask."""
         B, N, H, W = gt_depths.shape
         gt_depths = gt_depths.view(
             B * N,
@@ -319,23 +325,47 @@ class LabelDistillModel(LightningModule):
         gt_depths = gt_depths.permute(0, 1, 3, 5, 2, 4).contiguous()
         gt_depths = gt_depths.view(
             -1, self.downsample_factor * self.downsample_factor)
-        gt_depths_tmp = torch.where(gt_depths == 0.0,
-                                    1e5 * torch.ones_like(gt_depths),
-                                    gt_depths)
-        gt_depths = torch.min(gt_depths_tmp, dim=-1).values
-        gt_depths = gt_depths.view(B * N, H // self.downsample_factor,
-                                   W // self.downsample_factor)
+        nearest_depth = torch.where(
+            gt_depths > 0.0,
+            gt_depths,
+            torch.full_like(gt_depths, float('inf')),
+        ).min(dim=-1).values
+        nearest_depth = nearest_depth.view(
+            B * N,
+            H // self.downsample_factor,
+            W // self.downsample_factor,
+        )
 
-        gt_depths = (gt_depths -
-                     (self.dbound[0] - self.dbound[2])) / self.dbound[2]
-        gt_depths = torch.where(
-            (gt_depths < self.depth_channels + 1) & (gt_depths >= 0.0),
-            gt_depths, torch.zeros_like(gt_depths))
-        gt_depths = F.one_hot(gt_depths.long(),
-                              num_classes=self.depth_channels + 1).view(
-                                  -1, self.depth_channels + 1)[:, 1:]
+        fg_mask = (
+            torch.isfinite(nearest_depth)
+            & (nearest_depth >= self.dbound[0])
+            & (nearest_depth < self.dbound[1])
+        )
+        depth_indices = (nearest_depth - self.dbound[0]) / self.dbound[2]
+        depth_indices = torch.where(
+            fg_mask, depth_indices, torch.zeros_like(depth_indices))
+        depth_indices = torch.clamp(
+            depth_indices, 0.0, float(self.depth_channels - 1))
 
-        return gt_depths.float()
+        return depth_indices.view(-1), fg_mask.view(-1)
+
+    def create_soft_labels(self, depth_indices, fg_mask, sigma=1.5):
+        """Create normalized Gaussian targets around continuous depth bins."""
+        if sigma <= 0:
+            raise ValueError(f'depth label sigma must be positive, got {sigma}')
+
+        depth_indices = depth_indices[fg_mask]
+        if depth_indices.numel() == 0:
+            return depth_indices.new_zeros((0, self.depth_channels))
+
+        bin_indices = torch.arange(
+            self.depth_channels,
+            device=depth_indices.device,
+            dtype=depth_indices.dtype,
+        )
+        distances = depth_indices[:, None] - bin_indices[None, :]
+        weights = torch.exp(-0.5 * (distances / sigma) ** 2)
+        return weights / weights.sum(dim=1, keepdim=True).clamp_min(1e-8)
 
     def eval_step(self, batch, batch_idx, prefix: str):
         (sweep_imgs, mats, _, img_metas, _, _) = batch

@@ -13,11 +13,14 @@ from labeldistill.refine_head.target_assigner.adaptive_gt_scaler_v3 import (
 from labeldistill.refine_head.target_assigner.quality_aware_mask_v3 import (
     QualityAwareMaskGeneratorV3,
 )
+from labeldistill.refine_head.target_assigner.per_gt_feature_loss import (
+    PerGTFeatureDistillationLoss,
+)
 from labeldistill.refine_head.target_assigner.roi_distill import ProposalTargetLayer
 
 
 SMALL_CLASS_NAMES = {
-    'barrier', 'motorcycle', 'pedestrian', 'traffic_cone',
+    'barrier', 'motorcycle', 'bicycle', 'pedestrian', 'traffic_cone',
 }
 
 
@@ -49,7 +52,13 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
     )
     class_names = list(config.classes.names)
     class_groups = [list(group) for group in config.classes.tasks]
-    thresholds = _plain_thresholds(config)
+    thresholds = (
+        _plain_thresholds(config)
+        if config.matching.type == 'center_distance' else None)
+    trust_radius = OmegaConf.to_container(
+        config.matching.trust_radius, resolve=True)
+    official_class_ranges = OmegaConf.to_container(
+        config.matching.official_class_ranges, resolve=True)
     matcher = ProposalTargetLayer(
         structured=True,
         class_names=class_names,
@@ -58,6 +67,14 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
         class_policy=config.matching.class_policy,
         selection=config.matching.selection,
         one_to_one=config.matching.one_to_one,
+        matching_type=config.matching.type,
+        strict_less_than=config.matching.strict_less_than,
+        trust_radius=trust_radius,
+        small_classes=list(config.matching.small_classes),
+        large_classes=list(config.matching.large_classes),
+        official_class_ranges=official_class_ranges,
+        point_cloud_range=list(config.geometry.point_cloud_range),
+        value_type=config.region.value.type,
     )
     scaler = AdaptiveGTScalerV3(
         mu=config.region.scaler.mu,
@@ -70,25 +87,42 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
         idx for idx, name in enumerate(class_names)
         if name in SMALL_CLASS_NAMES
     ]
-    mask_generator = QualityAwareMaskGeneratorV3(
-        w_l=config.region.mask.w_low,
-        w_h=config.region.mask.w_high,
-        r_max=config.region.mask.max_distance,
-        boost_small_medium=config.region.mask.boost_small_medium,
-        point_cloud_range=list(config.geometry.point_cloud_range),
-        voxel_size=list(config.geometry.lidar_voxel_size),
-        out_size_factor=config.geometry.bev_output_stride,
-        feature_map_size=list(config.derived.feature_map_size),
-        gaussian_overlap=config.region.mask.gaussian_overlap,
-        min_radius=config.region.mask.min_radius,
-        small_class_ids=small_class_ids,
-    )
+    mask_generator = None
+    if config.region.mask.type == 'quality_aware_mask_v3':
+        mask_generator = QualityAwareMaskGeneratorV3(
+            w_l=config.region.mask.w_low,
+            w_h=config.region.mask.w_high,
+            r_max=config.region.mask.max_distance,
+            boost_small_medium=config.region.mask.boost_small_medium,
+            point_cloud_range=list(config.geometry.point_cloud_range),
+            voxel_size=list(config.geometry.lidar_voxel_size),
+            out_size_factor=config.geometry.bev_output_stride,
+            feature_map_size=list(config.derived.feature_map_size),
+            gaussian_overlap=config.region.mask.gaussian_overlap,
+            min_radius=config.region.mask.min_radius,
+            small_class_ids=small_class_ids,
+        )
+    feature_loss_reducer = None
+    if config.loss.feature_roi_reduction == 'per_gt_fixed_count':
+        feature_loss_reducer = PerGTFeatureDistillationLoss(
+            point_cloud_range=list(config.geometry.point_cloud_range),
+            feature_map_size=list(config.derived.feature_map_size),
+            gaussian_overlap=config.region.mask.gaussian_overlap,
+            min_radius=config.region.mask.min_radius,
+            small_class_ids=small_class_ids,
+            mask_type=config.region.mask.type,
+            overlap_merge=config.region.mask.overlap_merge,
+        )
     return experiment_cls(
         config=config,
         model=model,
         matcher=matcher,
         scaler=scaler,
         mask_generator=mask_generator,
+        feature_loss_reducer=feature_loss_reducer,
         backbone_conf=model_configs.backbone,
         head_conf=model_configs.head,
+        ida_aug_conf=model_configs.ida_aug,
+        bda_aug_conf=model_configs.bda_aug,
+        img_conf=model_configs.img,
     )

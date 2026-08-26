@@ -2,16 +2,49 @@ from pathlib import Path
 
 import pytest
 from omegaconf import OmegaConf
+import torch
 
 from labeldistill.config import (
     ConfigLoadError,
     ConfigValidationError,
+    checkpoint_config_file,
     load_and_resolve_config,
     save_config_artifacts,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_checkpoint_embedded_resolved_config_is_a_supported_input(tmp_path):
+    bundle = load_and_resolve_config(
+        PROJECT_ROOT / "configs/experiments/j4_wl05_wh07.yaml",
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+    checkpoint = tmp_path / "last.ckpt"
+    torch.save({
+        "labeldistill_schema_version": 1,
+        "labeldistill_resolved_config": OmegaConf.to_container(
+            bundle.config, resolve=True),
+    }, checkpoint)
+    with checkpoint_config_file(checkpoint) as config_path:
+        resumed = load_and_resolve_config(
+            config_path,
+            ["runtime.gpus=1"],
+            project_root=PROJECT_ROOT,
+            require_checkpoint=False,
+        )
+    assert resumed.config.experiment.name == "j4_wl05_wh07"
+    assert resumed.config.runtime.gpus == 1
+
+
+def test_checkpoint_without_embedded_config_fails(tmp_path):
+    checkpoint = tmp_path / "old.ckpt"
+    torch.save({"state_dict": {}}, checkpoint)
+    with pytest.raises(ConfigLoadError, match="predates embedded resolved config"):
+        with checkpoint_config_file(checkpoint):
+            pass
 
 
 def test_j4_baseline_resolves_real_derived_values():
@@ -33,11 +66,72 @@ def test_j4_baseline_resolves_real_derived_values():
     assert list(config.derived.bev_cell_size) == [0.8, 0.8]
     assert config.derived.key_frame_count == 5
     assert config.derived.student_bev_input_channels == 750
+    assert config.checkpoint.root_dir == (
+        "/mnt/nas_data/guqiupeng/checkpoint_nes")
 
 
-def test_inherited_ablation_and_cli_override_have_leaf_diff():
+def test_center_value_baseline_resolves_strict_low_parameter_policy():
     bundle = load_and_resolve_config(
-        PROJECT_ROOT / "configs/experiments/j4_wl05_wh08.yaml",
+        PROJECT_ROOT / "configs/experiments/b1_teacher_value_no_scale.yaml",
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+
+    config = bundle.config
+    assert config.matching.type == "scale_conditioned_center_distance"
+    assert config.matching.class_policy == "exact_class"
+    assert config.matching.one_to_one is True
+    assert config.matching.strict_less_than is True
+    assert config.matching.trust_radius.small == 1.0
+    assert config.matching.trust_radius.large == 2.0
+    assert "bicycle" in config.matching.small_classes
+    assert config.region.value.type == "normalized_squared_margin"
+    assert config.region.value.use_teacher_score is False
+    assert config.region.mask.normalize_per_instance is True
+    assert config.region.mask.overlap_merge == "max"
+    assert config.region.scaler.enabled is False
+    assert config.teacher.checkpoint.endswith(
+        "ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_"
+        "cyclic_20e_nus_20220810_030004-9061688e.pth")
+    assert config.teacher.checkpoint_prefix == ""
+    assert config.loss.feature_roi_reduction == "per_gt_fixed_count"
+
+
+@pytest.mark.parametrize(
+    "override, message",
+    [
+        ("matching.one_to_one=false", "requires one_to_one=true"),
+        ("matching.strict_less_than=false", "strict_less_than=true"),
+        ("matching.trust_radius.small=0", "trust_radius.small must be positive"),
+        ("region.value.use_teacher_score=true", "use_teacher_score=false"),
+        ("region.mask.overlap_merge=sum", "max overlap"),
+        ("loss.feature_roi_reduction=union_mask_mass",
+         "feature_roi_reduction=per_gt_fixed_count"),
+    ],
+)
+def test_center_value_baseline_rejects_semantic_drift(override, message):
+    with pytest.raises(ConfigValidationError, match=message):
+        load_and_resolve_config(
+            PROJECT_ROOT / "configs/experiments/b1_teacher_value_no_scale.yaml",
+            [override],
+            project_root=PROJECT_ROOT,
+            require_checkpoint=False,
+        )
+
+
+def test_inherited_override_and_cli_override_have_leaf_diff(tmp_path):
+    source_path = tmp_path / "legacy_override.yaml"
+    source_path.write_text(
+        f"_base_: {(PROJECT_ROOT / 'configs/experiments/j4_wl05_wh07.yaml').as_posix()}\n"
+        "experiment:\n"
+        "  name: temporary_legacy_override\n"
+        "region:\n"
+        "  mask:\n"
+        "    w_high: 0.8\n",
+        encoding="utf-8",
+    )
+    bundle = load_and_resolve_config(
+        source_path,
         ["runtime.gpus=4", "runtime.batch_size_per_device=4"],
         project_root=PROJECT_ROOT,
         require_checkpoint=False,
@@ -65,7 +159,6 @@ def test_inherited_ablation_and_cli_override_have_leaf_diff():
         ("distillation.feature_channels=[]", "at least one feature level"),
         ("matching.one_to_one=true", "one_to_one=true is not implemented"),
         ("matching.selection=nearest_distance", "is not supported"),
-        ("experiment.name=j4_wl05_wh08", "name encodes w_high=0.8"),
     ],
 )
 def test_invalid_cross_field_config_fails_before_training(override, message):
@@ -109,7 +202,10 @@ def test_inheritance_cycle_is_rejected(tmp_path):
 
 
 def test_audit_artifacts_include_exact_source_and_resolved_config(tmp_path):
-    source_path = PROJECT_ROOT / "configs/experiments/j4_wl05_wh08.yaml"
+    source_path = (
+        PROJECT_ROOT
+        / "configs/experiments/b1_teacher_value_no_scale.yaml"
+    )
     bundle = load_and_resolve_config(
         source_path,
         project_root=PROJECT_ROOT,
@@ -126,7 +222,9 @@ def test_audit_artifacts_include_exact_source_and_resolved_config(tmp_path):
     diff = OmegaConf.load(output / "config_diff.yaml")
     environment = (output / "environment.txt").read_text(encoding="utf-8")
     assert resolved.derived.feature_map_size == [128, 128]
-    assert diff.changes["region.mask.w_high"].base == 0.7
+    assert resolved.teacher.checkpoint.endswith(
+        "centerpoint_01voxel_second_secfpn_circlenms_4x8_"
+        "cyclic_20e_nus_20220810_030004-9061688e.pth")
     assert "source_sha256[" in environment
 
 

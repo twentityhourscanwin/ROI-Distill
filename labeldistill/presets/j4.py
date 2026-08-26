@@ -22,6 +22,9 @@ class J4ModelConfigs:
     head: Dict[str, Any]
     teacher: Dict[str, Any]
     teacher_proposal: Dict[str, Any]
+    ida_aug: Dict[str, Any]
+    bda_aug: Dict[str, Any]
+    img: Dict[str, Any]
 
 
 def _task_dicts(config):
@@ -31,9 +34,23 @@ def _task_dicts(config):
     ]
 
 
+def _student_base(config):
+    if config.student.type == 'camera_bevdepth_convnextb':
+        from .convnextb import build_convnextb_student_base
+        return build_convnextb_student_base(config)
+    if config.student.type == 'camera_bevdepth_r50':
+        return (
+            deepcopy(base_exp.backbone_conf),
+            deepcopy(base_exp.head_conf),
+            deepcopy(base_exp.ida_aug_conf),
+            deepcopy(base_exp.bda_aug_conf),
+            deepcopy(base_exp.img_conf),
+        )
+    raise ValueError(f'Unsupported student preset: {config.student.type!r}')
+
+
 def _student_configs(config):
-    backbone = deepcopy(base_exp.backbone_conf)
-    head = deepcopy(base_exp.head_conf)
+    backbone, head, ida_aug, bda_aug, img = _student_base(config)
     point_range = list(config.geometry.point_cloud_range)
     bev_cell = list(config.derived.bev_cell_size)
     key_frames = int(config.derived.key_frame_count)
@@ -84,7 +101,7 @@ def _student_configs(config):
         voxel_size=student_voxel,
         out_size_factor=STUDENT_HEAD_OUT_SIZE_FACTOR,
     )
-    return backbone, head
+    return backbone, head, ida_aug, bda_aug, img
 
 
 def _teacher_configs(config):
@@ -197,11 +214,14 @@ def _teacher_configs(config):
 
 def build_j4_model_configs(config):
     """Expand a validated J4 config into concrete model constructor kwargs."""
-    backbone, head = _student_configs(config)
+    backbone, head, ida_aug, bda_aug, img = _student_configs(config)
     teacher, teacher_proposal = _teacher_configs(config)
     return J4ModelConfigs(
         backbone=backbone,
         head=head,
         teacher=teacher,
         teacher_proposal=teacher_proposal,
+        ida_aug=ida_aug,
+        bda_aug=bda_aug,
+        img=img,
     )

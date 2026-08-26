@@ -3,8 +3,8 @@ schema_version: 1
 data:
   dataset: nuscenes
   root: data/nuScenes
-  train_info: nuscenes_infos_train.pkl
-  val_info: nuscenes_infos_val.pkl
+  train_info: nuscenes_infos_train_10sweeps_past9.pkl
+  val_info: nuscenes_infos_val_10sweeps_past9.pkl
   split: train
   num_workers: 4
   use_cbgs: false

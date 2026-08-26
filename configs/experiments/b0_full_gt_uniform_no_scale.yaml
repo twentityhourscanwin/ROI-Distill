@@ -1,0 +1,16 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b0_full_gt_uniform_no_scale
+  description: >-
+    B1 minus teacher value: every effective GT has q=1, with the same circular
+    Gaussian reducer, max overlap and no adaptive scaling.
+
+region:
+  value:
+    type: uniform_gt
+    use_teacher_score: false
+    unmatched_value: 1.0
+
+runtime:
+  output_dir: outputs/b0_full_gt_uniform_no_scale

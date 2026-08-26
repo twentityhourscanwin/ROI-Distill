@@ -1,0 +1,62 @@
+matching:
+  type: scale_conditioned_center_distance
+  class_policy: exact_class
+  selection: score_first_nearest_unmatched_gt
+  one_to_one: true
+  strict_less_than: true
+  trust_radius:
+    small: 1.0
+    large: 2.0
+  small_classes:
+    - barrier
+    - motorcycle
+    - bicycle
+    - pedestrian
+    - traffic_cone
+  large_classes:
+    - car
+    - truck
+    - construction_vehicle
+    - bus
+    - trailer
+  # nuScenes detection evaluation ranges. These are protocol constants, not
+  # tuned distillation parameters, and are evaluated before BDA scaling.
+  official_class_ranges:
+    car: 50.0
+    truck: 50.0
+    construction_vehicle: 50.0
+    bus: 50.0
+    trailer: 50.0
+    barrier: 30.0
+    motorcycle: 40.0
+    bicycle: 40.0
+    pedestrian: 40.0
+    traffic_cone: 30.0
+
+distillation:
+  feature_channels: [128, 256]
+
+region:
+  value:
+    type: normalized_squared_margin
+    use_teacher_score: false
+    unmatched_value: 0.0
+  scaler:
+    type: adaptive_gt_scaler_v3
+    enabled: false
+    mu: 0.15
+    velocity_scale: 0.2
+    max_distance: 50.0
+  mask:
+    type: per_gt_gaussian
+    gaussian_overlap: 0.1
+    min_radius: 2
+    normalize_per_instance: true
+    overlap_merge: max
+
+loss:
+  detection_weight: 1.0
+  depth_weight: 1.0
+  feature_weight: 1.0
+  response_weight: 1.0
+  feature_roi_reduction: per_gt_fixed_count

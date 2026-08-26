@@ -1,0 +1,14 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b1t_teacher_value_elliptical_mask
+  description: >-
+    B1 plus an oriented elliptical BEV Gaussian mask. Teacher value, original
+    GT geometry, fixed-count reduction and max-overlap policy remain unchanged.
+
+region:
+  mask:
+    type: per_gt_elliptical_gaussian
+
+runtime:
+  output_dir: outputs/b1t_teacher_value_elliptical_mask

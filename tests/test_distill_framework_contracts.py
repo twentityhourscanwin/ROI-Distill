@@ -2,14 +2,16 @@ from copy import deepcopy
 
 import torch
 
+from labeldistill.builders import build_experiment
+from labeldistill.config import load_and_resolve_config
 from labeldistill.exps.nuscenes import base_exp
-from labeldistill.exps.nuscenes.ablation_param import param_J4_wl05_wh08
 from labeldistill.models.distill_outputs import (
     LabelDistillOutput,
     ProposalBatch,
     StudentOutput,
     TeacherOutput,
 )
+from labeldistill.layers.heads.kd_head import _align_gt_values_to_tasks
 
 
 def test_base_experiment_can_skip_model_build_and_owns_config_copies(
@@ -61,7 +63,30 @@ def test_structured_distillation_output_exposes_named_contracts():
     assert outputs.teacher.proposals is proposals
 
 
-def test_j4_builds_only_the_final_structured_model(monkeypatch, tmp_path):
+def test_response_valid_masks_follow_centerhead_task_and_class_order():
+    gt_labels = [torch.tensor([8, 1, 2, 1, 0])]
+    valid = [torch.tensor([True, False, True, True, True])]
+    class_names = [
+        ['car'],
+        ['truck', 'construction_vehicle'],
+        ['bus', 'trailer'],
+        ['barrier'],
+        ['motorcycle', 'bicycle'],
+        ['pedestrian', 'traffic_cone'],
+    ]
+    target_masks = [torch.zeros((1, 6), dtype=torch.uint8) for _ in class_names]
+
+    aligned = _align_gt_values_to_tasks(
+        gt_labels, valid, class_names, target_masks)
+
+    assert aligned[0][0, :1].tolist() == [1.0]
+    # CenterHead groups task GTs by class: truck entries first, then
+    # construction_vehicle entries, preserving order within each class.
+    assert aligned[1][0, :3].tolist() == [0.0, 1.0, 1.0]
+    assert aligned[5][0, :1].tolist() == [1.0]
+
+
+def test_j4_builder_builds_only_the_final_structured_model(monkeypatch):
     calls = []
 
     def fail_base_model(*args, **kwargs):
@@ -73,12 +98,15 @@ def test_j4_builds_only_the_final_structured_model(monkeypatch, tmp_path):
             calls.append((args, kwargs))
 
     monkeypatch.setattr(base_exp, 'BaseBEVDepth', fail_base_model)
-    monkeypatch.setattr(param_J4_wl05_wh08, 'LabelDistill', DummyLabelDistill)
-    experiment = param_J4_wl05_wh08.LabelDistillModel(
-        default_root_dir=str(tmp_path))
+    bundle = load_and_resolve_config(
+        'configs/experiments/j4_wl05_wh07.yaml',
+        project_root='.',
+        require_checkpoint=False,
+    )
+    experiment = build_experiment(bundle, model_cls=DummyLabelDistill)
 
     assert isinstance(experiment.model, DummyLabelDistill)
     assert len(calls) == 1
     assert calls[0][1]['structured_output'] is True
     assert experiment.backbone_conf['output_channels'] == 150
-    assert experiment.hparams['backbone_conf']['output_channels'] == 150
+    assert experiment.resolved_config['student']['output_channels'] == 150

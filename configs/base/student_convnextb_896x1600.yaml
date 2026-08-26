@@ -1,0 +1,14 @@
+student:
+  type: camera_bevdepth_convnextb
+  output_channels: 150
+  temporal_kd_selection: current_t2_half_t6
+  image:
+    # Raw nuScenes images are 900x1600; the network crop must be divisible by 32.
+    source_size: [900, 1600]
+    final_size: [896, 1600]
+    # Keep resize >= 1.0 because final width equals source width; smaller
+    # scales force the fixed crop outside the resized image and add padding.
+    resize_limit: [1.0, 1.1]
+    gradient_checkpointing: true
+    pretrained: true
+    drop_path_rate: 0.3

@@ -10,7 +10,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from labeldistill.callbacks.ema import EMACallback
 
 
-def build_trainer(config, experiment):
+def build_trainer(config, experiment, *, for_evaluation=False):
     precision_map = {
         '16': '16-mixed',
         '16-mixed': '16-mixed',
@@ -19,8 +19,12 @@ def build_trainer(config, experiment):
         '32': 32,
         '64': 64,
     }
+    checkpoint_dir = (
+        Path(config.checkpoint.root_dir).expanduser()
+        / config.experiment.name
+    )
     checkpoint_callback = ModelCheckpoint(
-        dirpath=str(Path(config.runtime.output_dir) / 'checkpoints'),
+        dirpath=str(checkpoint_dir),
         filename='epoch_{epoch:02d}',
         save_top_k=config.checkpoint.save_top_k,
         save_last=config.checkpoint.save_last,
@@ -30,8 +34,8 @@ def build_trainer(config, experiment):
         save_on_train_epoch_end=True,
         auto_insert_metric_name=False,
     )
-    callbacks = [checkpoint_callback]
-    if config.ema.enabled:
+    callbacks = [] if for_evaluation else [checkpoint_callback]
+    if config.ema.enabled and not for_evaluation:
         # Preserve the legacy callback's update-count convention until EMA is
         # independently migrated and numerically frozen.
         total_samples = len(experiment.train_dataloader().dataset)
@@ -40,7 +44,8 @@ def build_trainer(config, experiment):
     world_size = config.runtime.gpus * config.runtime.num_nodes
     strategy = (
         DDPStrategy(
-            find_unused_parameters=True,
+            find_unused_parameters=config.runtime.find_unused_parameters,
+            static_graph=config.runtime.ddp_static_graph,
             process_group_backend=config.runtime.distributed_backend,
             timeout=timedelta(hours=2),
         )
@@ -58,7 +63,7 @@ def build_trainer(config, experiment):
         accumulate_grad_batches=config.runtime.accumulate_grad_batches,
         deterministic=config.runtime.deterministic,
         limit_val_batches=0,
-        enable_checkpointing=True,
+        enable_checkpointing=not for_evaluation,
         precision=precision_map.get(
             str(config.runtime.precision), config.runtime.precision),
         reload_dataloaders_every_n_epochs=1,
@@ -67,4 +72,6 @@ def build_trainer(config, experiment):
     )
     if config.runtime.limit_train_batches is not None:
         trainer_kwargs['limit_train_batches'] = config.runtime.limit_train_batches
+    if config.runtime.limit_test_batches is not None:
+        trainer_kwargs['limit_test_batches'] = config.runtime.limit_test_batches
     return pl.Trainer(**trainer_kwargs)

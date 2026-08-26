@@ -1,0 +1,14 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b2_teacher_value_adaptive_scale
+  description: >-
+    B1 plus AdaptiveGTScalerV3 geometry. Matching, q, circular Gaussian
+    reduction and max-overlap policy remain identical to B1.
+
+region:
+  scaler:
+    enabled: true
+
+runtime:
+  output_dir: outputs/b2_teacher_value_adaptive_scale

@@ -214,11 +214,21 @@ class AdaptiveGTScalerV3:
     def forward(self, matched_results):
         if isinstance(matched_results, MatchResult):
             scaled_gt_list = []
-            for gt_boxes, quality, matched_rois in zip(
+            for batch_idx, (gt_boxes, quality, matched_rois) in enumerate(zip(
                     matched_results.gt_boxes,
                     matched_results.quality,
-                    matched_results.matched_rois):
+                    matched_results.matched_rois)):
                 scaled_gt = gt_boxes.clone()
+                if matched_results.matched_mask is not None:
+                    # The continuous-value baseline has no High/Medium geometry
+                    # buckets. Every matched instance uses the same continuous
+                    # proposal-offset expansion; q controls only loss strength.
+                    matched_mask = matched_results.matched_mask[batch_idx]
+                    scaled_gt[matched_mask] = self.scale_high_quality(
+                        gt_boxes[matched_mask], matched_rois[matched_mask])
+                    scaled_gt_list.append(scaled_gt)
+                    continue
+
                 high_mask = quality == int(MatchQuality.HIGH)
                 medium_mask = quality == int(MatchQuality.MEDIUM)
                 unmatched_mask = quality == int(MatchQuality.UNMATCHED)

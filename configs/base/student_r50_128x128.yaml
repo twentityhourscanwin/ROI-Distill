@@ -2,3 +2,10 @@ student:
   type: camera_bevdepth_r50
   output_channels: 150
   temporal_kd_selection: legacy_half
+  image:
+    source_size: [900, 1600]
+    final_size: [256, 704]
+    resize_limit: [0.386, 0.55]
+    gradient_checkpointing: false
+    pretrained: true
+    drop_path_rate: 0.0

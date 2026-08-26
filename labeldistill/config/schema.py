@@ -22,10 +22,13 @@ class RuntimeConfig:
     batch_size_per_device: int = 8
     accumulate_grad_batches: int = 1
     limit_train_batches: Optional[int] = None
+    limit_test_batches: Optional[int] = None
     max_epochs: int = 24
     precision: str = "16"
     gradient_clip_val: float = 35.0
     deterministic: bool = True
+    find_unused_parameters: bool = True
+    ddp_static_graph: bool = False
     output_dir: str = MISSING
     resume_from: Optional[str] = None
 
@@ -37,9 +40,15 @@ class EMAConfig:
 
 @dataclass
 class CheckpointConfig:
+    root_dir: str = "/mnt/nas_data/guqiupeng/checkpoint_nes"
     save_top_k: int = 3
     save_last: bool = True
     every_n_epochs: int = 1
+
+
+@dataclass
+class EvaluationConfig:
+    run_metrics: bool = True
 
 
 @dataclass
@@ -68,10 +77,21 @@ class ClassesConfig:
 
 
 @dataclass
+class StudentImageConfig:
+    source_size: List[int] = field(default_factory=lambda: [900, 1600])
+    final_size: List[int] = field(default_factory=lambda: [256, 704])
+    resize_limit: List[float] = field(default_factory=lambda: [0.386, 0.55])
+    gradient_checkpointing: bool = False
+    pretrained: bool = True
+    drop_path_rate: float = 0.0
+
+
+@dataclass
 class StudentConfig:
     type: str = MISSING
     output_channels: int = MISSING
     temporal_kd_selection: str = MISSING
+    image: StudentImageConfig = field(default_factory=StudentImageConfig)
 
 
 @dataclass
@@ -105,13 +125,24 @@ class DistanceThresholdConfig:
 
 
 @dataclass
+class TrustRadiusConfig:
+    small: Optional[float] = None
+    large: Optional[float] = None
+
+
+@dataclass
 class MatchingConfig:
     type: str = "center_distance"
     class_policy: str = "same_task_group"
     selection: str = "highest_score"
     one_to_one: bool = False
+    strict_less_than: bool = False
     distance_thresholds: Dict[str, DistanceThresholdConfig] = field(
         default_factory=dict)
+    trust_radius: TrustRadiusConfig = field(default_factory=TrustRadiusConfig)
+    small_classes: List[str] = field(default_factory=list)
+    large_classes: List[str] = field(default_factory=list)
+    official_class_ranges: Dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -124,19 +155,29 @@ class ScalerConfig:
 
 
 @dataclass
+class ValueConfig:
+    type: str = "legacy_discrete"
+    use_teacher_score: bool = True
+    unmatched_value: float = 0.0
+
+
+@dataclass
 class MaskConfig:
     type: str = "quality_aware_mask_v3"
-    w_low: float = MISSING
-    w_high: float = MISSING
+    w_low: Optional[float] = None
+    w_high: Optional[float] = None
     max_distance: float = 50.0
     boost_small_medium: bool = True
     gaussian_overlap: float = 0.1
     min_radius: int = 2
+    normalize_per_instance: bool = False
+    overlap_merge: str = "max"
 
 
 @dataclass
 class RegionConfig:
     scaler: ScalerConfig = field(default_factory=ScalerConfig)
+    value: ValueConfig = field(default_factory=ValueConfig)
     mask: MaskConfig = field(default_factory=MaskConfig)
 
 
@@ -146,6 +187,7 @@ class LossConfig:
     depth_weight: float = 1.0
     feature_weight: float = MISSING
     response_weight: float = 1.0
+    feature_roi_reduction: str = "union_mask_mass"
 
 
 @dataclass
@@ -159,7 +201,10 @@ class OptimizerConfig:
 @dataclass
 class SchedulerConfig:
     type: str = "MultiStepLR"
-    milestones: List[int] = MISSING
+    milestones: List[int] = field(default_factory=list)
+    warmup_steps: int = 0
+    warmup_ratio: float = 0.001
+    min_lr_ratio: float = 0.0
 
 
 @dataclass
@@ -180,6 +225,7 @@ class LabelDistillConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     ema: EMAConfig = field(default_factory=EMAConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
+    evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     data: DataConfig = field(default_factory=DataConfig)
     geometry: GeometryConfig = field(default_factory=GeometryConfig)
     classes: ClassesConfig = field(default_factory=ClassesConfig)

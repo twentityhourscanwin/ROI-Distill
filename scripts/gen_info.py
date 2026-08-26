@@ -1,3 +1,5 @@
+import argparse
+import os
 import pickle
 import numpy as np
 from nuscenes.nuscenes import NuScenes
@@ -5,7 +7,7 @@ from nuscenes.utils import splits
 from tqdm import tqdm
 
 
-def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=5):
+def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=9):
     infos = list()
     for cur_scene in tqdm(nusc.scene):
         if cur_scene['name'] not in scenes:
@@ -57,7 +59,10 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=5):
                     'calibrated_sensor', lidar_data['calibrated_sensor_token'])
                 lidar_infos[lidar_name] = sweep_lidar_info
 
-            lidar_sweeps = [dict() for _ in range(max_lidar_sweeps*2)]
+            # CenterPoint uses the key sweep plus nine causal (past) sweeps.
+            # Keep only previous LiDAR sample_data records here; future sweeps
+            # leak information that is unavailable to the student at inference.
+            lidar_sweeps = [dict() for _ in range(max_lidar_sweeps)]
             cam_sweeps = [dict() for _ in range(max_cam_sweeps)]
             info['cam_infos'] = cam_infos
             info['lidar_infos'] = lidar_infos
@@ -102,9 +107,6 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=5):
                         sweep_lidar_info = dict()
                         sweep_lidar_info['sample_token'] = sweep_lidar_data[
                             'sample_token']
-                        if sweep_lidar_info['sample_token'] != lidar_data[
-                                'sample_token']:
-                            break
                         sweep_lidar_info['ego_pose'] = nusc.get(
                             'ego_pose', sweep_lidar_data['ego_pose_token'])
                         sweep_lidar_info['timestamp'] = sweep_lidar_data[
@@ -115,37 +117,8 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=5):
                             'filename']
                         sweep_lidar_info['calibrated_sensor'] = nusc.get(
                             'calibrated_sensor',
-                            cam_data['calibrated_sensor_token'])
+                            sweep_lidar_data['calibrated_sensor_token'])
                         lidar_sweeps[j][lidar_names[k]] = sweep_lidar_info
-
-                sweep_lidar_data = lidar_data
-                for j in range(max_lidar_sweeps):
-                    if sweep_lidar_data['next'] == '':
-                        break
-                    else:
-                        sweep_lidar_data = nusc.get('sample_data',
-                                                    sweep_lidar_data['next'])
-                        sweep_lidar_info = dict()
-                        sweep_lidar_info['sample_token'] = sweep_lidar_data[
-                            'sample_token']
-
-                        sweep_scene = nusc.get('sample', sweep_lidar_data['sample_token'])['scene_token']
-                        sample_scene = nusc.get('sample', lidar_data['sample_token'])['scene_token']
-
-                        if sweep_scene != sample_scene:
-                            break
-                        sweep_lidar_info['ego_pose'] = nusc.get(
-                            'ego_pose', sweep_lidar_data['ego_pose_token'])
-                        sweep_lidar_info['timestamp'] = sweep_lidar_data[
-                            'timestamp']
-                        sweep_lidar_info['is_key_frame'] = sweep_lidar_data[
-                            'is_key_frame']
-                        sweep_lidar_info['filename'] = sweep_lidar_data[
-                            'filename']
-                        sweep_lidar_info['calibrated_sensor'] = nusc.get(
-                            'calibrated_sensor',
-                            cam_data['calibrated_sensor_token'])
-                        lidar_sweeps[j+max_lidar_sweeps][lidar_names[k]] = sweep_lidar_info
 
             # Remove empty sweeps.
             for i, sweep in enumerate(cam_sweeps):
@@ -177,19 +150,35 @@ def generate_info(nusc, scenes, max_cam_sweeps=6, max_lidar_sweeps=5):
 
 
 def main():
-    dataroot = './data/nuScenes/'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data-root', default='./data/nuScenes')
+    parser.add_argument('--max-lidar-sweeps', type=int, default=9)
+    parser.add_argument('--output-suffix', default='10sweeps_past9')
+    args = parser.parse_args()
+    dataroot = args.data_root
 
     trainval_nusc = NuScenes(version='v1.0-trainval',
                              dataroot=dataroot,
                              verbose=True)
 
-    train_infos = generate_info(trainval_nusc, splits.train)
-    with open(dataroot + 'nuscenes_infos_train.pkl', 'wb') as f:
+    train_infos = generate_info(
+        trainval_nusc, splits.train,
+        max_lidar_sweeps=args.max_lidar_sweeps)
+    train_path = os.path.join(
+        dataroot, f'nuscenes_infos_train_{args.output_suffix}.pkl')
+    with open(train_path, 'wb') as f:
         pickle.dump(train_infos, f)
 
-    val_infos = generate_info(trainval_nusc, splits.val)
-    with open(dataroot + 'nuscenes_infos_val.pkl', 'wb') as f:
+    val_infos = generate_info(
+        trainval_nusc, splits.val,
+        max_lidar_sweeps=args.max_lidar_sweeps)
+    val_path = os.path.join(
+        dataroot, f'nuscenes_infos_val_{args.output_suffix}.pkl')
+    with open(val_path, 'wb') as f:
         pickle.dump(val_infos, f)
+
+    print(f'Wrote {train_path}')
+    print(f'Wrote {val_path}')
 
 
 if __name__ == '__main__':

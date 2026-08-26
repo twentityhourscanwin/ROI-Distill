@@ -35,7 +35,7 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 def _validate_experiment_name(config: DictConfig, errors: List[str]) -> None:
     name = config.experiment.name
-    match = re.fullmatch(r"j4_wl(\d+)_wh(\d+)", name)
+    match = re.fullmatch(r"j[1-5]_wl(\d+)_wh(\d+)", name)
     if match is None:
         return
     # Historical names encode 0.5 as ``05`` and 0.35 as ``035``.
@@ -90,6 +90,12 @@ def validate_config(
             "runtime.limit_train_batches must be positive when set",
             errors,
         )
+    if config.runtime.limit_test_batches is not None:
+        _require(
+            config.runtime.limit_test_batches > 0,
+            "runtime.limit_test_batches must be positive when set",
+            errors,
+        )
     _require(config.runtime.max_epochs > 0, "runtime.max_epochs must be positive", errors)
     _require(
         config.runtime.gradient_clip_val >= 0,
@@ -97,6 +103,11 @@ def validate_config(
         errors,
     )
     _require(config.checkpoint.save_top_k >= -1, "checkpoint.save_top_k must be >= -1", errors)
+    _require(
+        Path(config.checkpoint.root_dir).expanduser().is_absolute(),
+        "checkpoint.root_dir must be an absolute path",
+        errors,
+    )
     _require(
         config.checkpoint.every_n_epochs > 0,
         "checkpoint.every_n_epochs must be positive",
@@ -111,20 +122,55 @@ def validate_config(
 
     supported_values = {
         "data.dataset": (config.data.dataset, {"nuscenes"}),
-        "student.type": (config.student.type, {"camera_bevdepth_r50"}),
+        "student.type": (
+            config.student.type,
+            {"camera_bevdepth_r50", "camera_bevdepth_convnextb"},
+        ),
         "student.temporal_kd_selection": (
             config.student.temporal_kd_selection,
-            {"legacy_half", "current_t2_half_t6"},
+            {"full", "legacy_half", "current_t2_half_t6"},
         ),
         "teacher.type": (config.teacher.type, {"frozen_centerpoint"}),
         "teacher.proposal.nms_type": (config.teacher.proposal.nms_type, {"circle"}),
-        "matching.type": (config.matching.type, {"center_distance"}),
-        "matching.class_policy": (config.matching.class_policy, {"same_task_group"}),
-        "matching.selection": (config.matching.selection, {"highest_score"}),
+        "matching.type": (
+            config.matching.type,
+            {"center_distance", "scale_conditioned_center_distance"},
+        ),
+        "matching.class_policy": (
+            config.matching.class_policy,
+            {"same_task_group", "exact_class"},
+        ),
+        "matching.selection": (
+            config.matching.selection,
+            {"highest_score", "score_first_nearest_unmatched_gt"},
+        ),
         "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
-        "region.mask.type": (config.region.mask.type, {"quality_aware_mask_v3"}),
+        "region.value.type": (
+            config.region.value.type,
+            {"legacy_discrete", "normalized_squared_margin", "uniform_gt"},
+        ),
+        "region.mask.type": (
+            config.region.mask.type,
+            {
+                "gt_heatmap",
+                "quality_aware_mask_v3",
+                "per_gt_gaussian",
+                "per_gt_elliptical_gaussian",
+            },
+        ),
+        "region.mask.overlap_merge": (
+            config.region.mask.overlap_merge,
+            {"max", "sum"},
+        ),
+        "loss.feature_roi_reduction": (
+            config.loss.feature_roi_reduction,
+            {"union_mask_mass", "per_gt_fixed_count"},
+        ),
         "optimizer.type": (config.optimizer.type, {"AdamW"}),
-        "scheduler.type": (config.scheduler.type, {"MultiStepLR"}),
+        "scheduler.type": (
+            config.scheduler.type,
+            {"MultiStepLR", "LinearWarmupCosine"},
+        ),
         "runtime.precision": (
             str(config.runtime.precision),
             {"16", "16-mixed", "bf16", "bf16-mixed", "32", "64"},
@@ -136,15 +182,16 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
-    _require(
-        not config.matching.one_to_one,
-        "matching.one_to_one=true is not implemented",
-        errors,
-    )
-
     w_low = config.region.mask.w_low
     w_high = config.region.mask.w_high
-    _require(0 < w_low <= w_high < 1, "need 0 < w_low <= w_high < 1", errors)
+    if config.region.mask.type == "quality_aware_mask_v3":
+        _require(
+            w_low is not None
+            and w_high is not None
+            and 0 < w_low <= w_high < 1,
+            "need 0 < w_low <= w_high < 1",
+            errors,
+        )
     _require(config.region.scaler.mu >= 0, "region.scaler.mu must be non-negative", errors)
     _require(
         config.region.scaler.velocity_scale >= 0,
@@ -206,15 +253,129 @@ def validate_config(
         "teacher.proposal.post_center_range must have 6 values",
         errors,
     )
-    _require(
-        set(config.matching.distance_thresholds.keys()) == set(class_names),
-        "matching.distance_thresholds must cover every class exactly once",
-        errors,
-    )
-    for class_name, thresholds in config.matching.distance_thresholds.items():
+    if config.matching.type == "center_distance":
         _require(
-            0 < thresholds.high <= thresholds.medium,
-            f"matching thresholds for {class_name} need 0 < high <= medium",
+            config.matching.class_policy == "same_task_group",
+            "center_distance requires matching.class_policy=same_task_group",
+            errors,
+        )
+        _require(
+            config.matching.selection == "highest_score",
+            "center_distance requires matching.selection=highest_score",
+            errors,
+        )
+        _require(
+            not config.matching.one_to_one,
+            "matching.one_to_one=true is not implemented for legacy "
+            "center_distance",
+            errors,
+        )
+        _require(
+            set(config.matching.distance_thresholds.keys()) == set(class_names),
+            "matching.distance_thresholds must cover every class exactly once",
+            errors,
+        )
+        for class_name, thresholds in config.matching.distance_thresholds.items():
+            _require(
+                0 < thresholds.high <= thresholds.medium,
+                f"matching thresholds for {class_name} need 0 < high <= medium",
+                errors,
+            )
+    elif config.matching.type == "scale_conditioned_center_distance":
+        small_classes = list(config.matching.small_classes)
+        large_classes = list(config.matching.large_classes)
+        grouped_classes = small_classes + large_classes
+        _require(
+            config.matching.class_policy == "exact_class",
+            "scale-conditioned matching requires class_policy=exact_class",
+            errors,
+        )
+        _require(
+            config.matching.selection == "score_first_nearest_unmatched_gt",
+            "scale-conditioned matching requires "
+            "selection=score_first_nearest_unmatched_gt",
+            errors,
+        )
+        _require(
+            config.matching.one_to_one,
+            "scale-conditioned matching requires one_to_one=true",
+            errors,
+        )
+        _require(
+            config.matching.strict_less_than,
+            "scale-conditioned matching requires strict_less_than=true",
+            errors,
+        )
+        _require(
+            len(grouped_classes) == len(set(grouped_classes))
+            and set(grouped_classes) == set(class_names),
+            "matching small/large classes must partition classes.names",
+            errors,
+        )
+        _require(
+            config.matching.trust_radius.small is not None
+            and config.matching.trust_radius.small > 0,
+            "matching.trust_radius.small must be positive",
+            errors,
+        )
+        _require(
+            config.matching.trust_radius.large is not None
+            and config.matching.trust_radius.large > 0,
+            "matching.trust_radius.large must be positive",
+            errors,
+        )
+        _require(
+            set(config.matching.official_class_ranges.keys()) == set(class_names)
+            and all(
+                value > 0
+                for value in config.matching.official_class_ranges.values()
+            ),
+            "matching.official_class_ranges must contain every class with a "
+            "positive range",
+            errors,
+        )
+        if config.region.value.type == "normalized_squared_margin":
+            _require(
+                not config.region.value.use_teacher_score
+                and math.isclose(config.region.value.unmatched_value, 0.0),
+                "teacher-value experiments require use_teacher_score=false "
+                "and unmatched_value=0",
+                errors,
+            )
+        elif config.region.value.type == "uniform_gt":
+            _require(
+                not config.region.value.use_teacher_score
+                and math.isclose(config.region.value.unmatched_value, 1.0),
+                "uniform-GT experiments require use_teacher_score=false "
+                "and unmatched_value=1",
+                errors,
+            )
+            _require(
+                not config.region.scaler.enabled,
+                "uniform-GT B0 requires region.scaler.enabled=false",
+                errors,
+            )
+        else:
+            _require(
+                False,
+                "scale-conditioned matching requires normalized_squared_margin "
+                "or uniform_gt value policy",
+                errors,
+            )
+        _require(
+            config.region.mask.type in {
+                "per_gt_gaussian", "per_gt_elliptical_gaussian"
+            }
+            and config.region.mask.normalize_per_instance
+            and config.region.mask.overlap_merge == "max",
+            "center-value baseline requires normalized per-GT Gaussian masks "
+            "with max overlap",
+            errors,
+        )
+        _require(
+            config.loss.feature_roi_reduction == "per_gt_fixed_count",
+            "center-value baseline requires feature_roi_reduction="
+            "per_gt_fixed_count",
             errors,
         )
 
@@ -225,7 +386,7 @@ def validate_config(
     )
     _require(
         list(config.distillation.feature_channels) == [128, 256],
-        "camera_bevdepth_r50/frozen_centerpoint requires "
+        "camera BEVDepth/frozen_centerpoint requires "
         "distillation.feature_channels=[128, 256]",
         errors,
     )
@@ -235,15 +396,72 @@ def validate_config(
         errors,
     )
     _require(config.student.output_channels > 0, "student.output_channels must be positive", errors)
+    source_size = list(config.student.image.source_size)
+    final_size = list(config.student.image.final_size)
+    resize_limit = list(config.student.image.resize_limit)
     _require(
-        config.student.output_channels % 2 == 0,
-        "student.output_channels must be even for temporal KD selection",
+        len(source_size) == 2 and all(value > 0 for value in source_size),
+        "student.image.source_size must contain two positive values",
         errors,
     )
+    _require(
+        len(final_size) == 2 and all(value > 0 for value in final_size),
+        "student.image.final_size must contain two positive values",
+        errors,
+    )
+    _require(
+        len(resize_limit) == 2
+        and 0 < resize_limit[0] <= resize_limit[1],
+        "student.image.resize_limit must contain 0 < min <= max",
+        errors,
+    )
+    _require(
+        0 <= config.student.image.drop_path_rate < 1,
+        "student.image.drop_path_rate must be in [0, 1)",
+        errors,
+    )
+    if config.student.type == "camera_bevdepth_convnextb" and len(final_size) == 2:
+        _require(
+            all(value % 32 == 0 for value in final_size),
+            "ConvNeXt-B student.image.final_size must be divisible by 32",
+            errors,
+        )
+    if config.student.temporal_kd_selection != "full":
+        _require(
+            config.student.output_channels % 2 == 0,
+            "student.output_channels must be even for temporal KD selection",
+            errors,
+        )
     if config.student.temporal_kd_selection == "current_t2_half_t6":
         _require(
             len(config.data.key_idxes) == 4,
             "current_t2_half_t6 requires exactly five frames",
+            errors,
+        )
+
+    if config.scheduler.type == "MultiStepLR":
+        milestones = list(config.scheduler.milestones)
+        _require(
+            bool(milestones)
+            and all(value > 0 for value in milestones)
+            and milestones == sorted(milestones),
+            "MultiStepLR milestones must be a non-empty sorted positive list",
+            errors,
+        )
+    elif config.scheduler.type == "LinearWarmupCosine":
+        _require(
+            config.scheduler.warmup_steps >= 0,
+            "scheduler.warmup_steps must be non-negative",
+            errors,
+        )
+        _require(
+            0 < config.scheduler.warmup_ratio <= 1,
+            "scheduler.warmup_ratio must be in (0, 1]",
+            errors,
+        )
+        _require(
+            0 <= config.scheduler.min_lr_ratio <= 1,
+            "scheduler.min_lr_ratio must be in [0, 1]",
             errors,
         )
 

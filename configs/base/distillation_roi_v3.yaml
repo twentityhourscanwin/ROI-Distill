@@ -3,6 +3,13 @@ matching:
   class_policy: same_task_group
   selection: highest_score
   one_to_one: false
+  strict_less_than: false
+  trust_radius:
+    small: null
+    large: null
+  small_classes: []
+  large_classes: []
+  official_class_ranges: {}
   distance_thresholds:
     car:                  {high: 2.0, medium: 4.0}
     truck:                {high: 2.5, medium: 4.0}
@@ -19,6 +26,10 @@ distillation:
   feature_channels: [128, 256]
 
 region:
+  value:
+    type: legacy_discrete
+    use_teacher_score: true
+    unmatched_value: 0.0
   scaler:
     type: adaptive_gt_scaler_v3
     enabled: true
@@ -33,9 +44,13 @@ region:
     boost_small_medium: true
     gaussian_overlap: 0.1
     min_radius: 2
+    normalize_per_instance: false
+    overlap_merge: max
 
 loss:
   detection_weight: 1.0
+  # Outer multiplier for the shared 3x Gaussian-label KL depth loss.
   depth_weight: 1.0
   feature_weight: 0.6
   response_weight: 1.0
+  feature_roi_reduction: union_mask_mass

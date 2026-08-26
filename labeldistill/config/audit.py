@@ -17,8 +17,10 @@ from .validation import sha256_file
 
 _J4_CRITICAL_SOURCES = (
     "labeldistill/exps/nuscenes/base_exp.py",
-    "labeldistill/exps/nuscenes/ablation_param/param_J4_wl05_wh08.py",
+    "labeldistill/acceptance/snapshot.py",
     "labeldistill/presets/j4.py",
+    "labeldistill/presets/convnextb.py",
+    "labeldistill/layers/backbones/convnext_backbone.py",
     "labeldistill/builders/experiment_builder.py",
     "labeldistill/builders/trainer_builder.py",
     "labeldistill/experiments/j4.py",
@@ -27,8 +29,10 @@ _J4_CRITICAL_SOURCES = (
     "labeldistill/refine_head/target_assigner/roi_distill.py",
     "labeldistill/refine_head/target_assigner/adaptive_gt_scaler_v3.py",
     "labeldistill/refine_head/target_assigner/quality_aware_mask_v3.py",
+    "labeldistill/refine_head/target_assigner/per_gt_feature_loss.py",
     "labeldistill/config/schema.py",
     "labeldistill/config/loader.py",
+    "labeldistill/config/checkpoint.py",
     "labeldistill/config/validation.py",
 )
 

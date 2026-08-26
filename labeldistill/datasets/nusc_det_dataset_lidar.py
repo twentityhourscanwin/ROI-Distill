@@ -105,6 +105,21 @@ def bev_transform(gt_boxes, rotate_angle, scale_ratio, flip_dx, flip_dy):
     return gt_boxes, rot_mat
 
 
+def apply_bda_to_lidar_points_(points, bda_rot):
+    """Apply the same 3D BDA transform used by GT boxes to LiDAR xyz."""
+    if points.ndim != 2 or points.shape[1] < 3:
+        raise ValueError(
+            f'Expected LiDAR points with shape [N, >=3], got {tuple(points.shape)}')
+    if bda_rot.shape != (3, 3):
+        raise ValueError(
+            f'Expected a 3x3 BDA matrix, got {tuple(bda_rot.shape)}')
+    points[:, :3] = (
+        bda_rot.to(device=points.device, dtype=points.dtype)
+        @ points[:, :3].unsqueeze(-1)
+    ).squeeze(-1)
+    return points
+
+
 def depth_transform(cam_depth, resize, resize_dims, crop, flip, rotate):
     """Transform depth based on ida augmentation configuration.
 
@@ -374,7 +389,8 @@ class NuscDetDataset(Dataset):
         # else:
         #     lidar_idx = np.arange(9)
         # lidar_idx = np.concatenate([np.array([0, ]), lidar_idx])  # make sure always have key index sweep
-        lidar_idx = np.arange(9)  # disable
+        # Index 0 is the key sweep and indices 1..9 are the nine past sweeps.
+        lidar_idx = np.arange(10)
         return lidar_idx
 
     def get_lidar_depth(self, lidar_points, img, lidar_info, cam_info):
@@ -435,17 +451,24 @@ class NuscDetDataset(Dataset):
                 points[:, :3] += keyego2global_trans[:3]
                 points[:, :3] = (keyego2global_rot[:3, :3] @ points[:, :3].unsqueeze(-1)).squeeze(-1)
 
-                # Apply bda augmentation
-                points[:, :2] = (bda_rot[:2, :2] @ points[:, :2].unsqueeze(-1)).squeeze(-1)
+                # Apply exactly the same rotation/flip/scale to LiDAR xyz as
+                # to GT centers. In particular, uniform BDA scale must also
+                # transform z; otherwise teacher height/z targets are in a
+                # different coordinate system from the student and GT.
+                apply_bda_to_lidar_points_(points, bda_rot)
 
                 # Normalize reflectance
                 # points[:, 3] = points[:, 3] / 256.
 
                 sweep_ptss.append(points)
 
-            if len(lidar_info_sweeps) == 1:  # corresponds to 'pad_empty_sweeps=True' option in mmdet3d
-                for _ in range(8):
-                    sweep_ptss.append(points)
+            # Keep the teacher input at exactly ten sweeps. At the beginning
+            # of a scene, missing history is padded with the key sweep, which
+            # matches the intent of mmdet3d's pad_empty_sweeps=True behavior.
+            if len(sweep_ptss) < 10:
+                key_sweep_points = sweep_ptss[0]
+                for _ in range(10 - len(sweep_ptss)):
+                    sweep_ptss.append(key_sweep_points.clone())
 
             sweep_ptss = torch.cat(sweep_ptss)
             num_points, num_feat = sweep_ptss.shape

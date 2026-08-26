@@ -12,6 +12,7 @@ For each selected sample it saves exactly three views:
 
 Example:
     python tools/visualize_roi_distill_evidence.py \
+        --config configs/experiments/center_value_baseline_cp50200.yaml \
         --split val \
         --max-samples 200 \
         --max-figures 20 \
@@ -20,7 +21,6 @@ Example:
 
 import argparse
 import copy
-import importlib
 import json
 import os
 import sys
@@ -43,12 +43,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from labeldistill.datasets.nusc_det_dataset_lidar import NuscDetDataset, collate_fn
+from labeldistill.builders import build_experiment
+from labeldistill.config import load_and_resolve_config
 
 
-DEFAULT_EXP = (
-    "labeldistill.exps.nuscenes.ablation_param.param_P3_lambda_055:"
-    "LabelDistillModel"
-)
+DEFAULT_CONFIG = "configs/experiments/center_value_baseline_cp50200.yaml"
 
 PC_RANGE = (-51.2, -51.2, -5.0, 51.2, 51.2, 3.0)
 VOXEL_SIZE = (0.1, 0.1, 0.2)
@@ -59,8 +58,8 @@ FEATURE_MAP_SIZE = (128, 128)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Search and visualize GT/teacher heatmap mismatch cases.")
-    parser.add_argument("--exp", default=DEFAULT_EXP,
-                        help="Experiment class as module.path:ClassName.")
+    parser.add_argument("--config", default=DEFAULT_CONFIG,
+                        help="Validated YAML experiment config.")
     parser.add_argument("--split", default="val", choices=["train", "val"],
                         help="Which info split to scan. GT is still loaded.")
     parser.add_argument("--out-dir", default="outputs/vis_evidence",
@@ -80,13 +79,10 @@ def parse_args() -> argparse.Namespace:
                         help="Teacher heatmap max below this is a mismatch.")
     parser.add_argument("--save-pdf", action="store_true",
                         help="Also save PDF figures.")
+    parser.add_argument(
+        "overrides", nargs="*",
+        help="OmegaConf dot-list overrides such as data.num_workers=0.")
     return parser.parse_args()
-
-
-def import_exp_class(exp_spec: str):
-    module_name, class_name = exp_spec.split(":")
-    module = importlib.import_module(module_name)
-    return getattr(module, class_name)
 
 
 def deterministic_aug_conf(exp: Any) -> Tuple[Dict[str, Any], Dict[str, Any]]:
@@ -566,8 +562,9 @@ def main() -> None:
         args.device = "cpu"
     device = torch.device(args.device)
 
-    exp_cls = import_exp_class(args.exp)
-    exp = exp_cls(batch_size_per_device=1)
+    bundle = load_and_resolve_config(
+        args.config, args.overrides, project_root=str(REPO_ROOT))
+    exp = build_experiment(bundle)
     exp.model.to(device)
     exp.model.train()
     exp.model.centerpoint.eval()

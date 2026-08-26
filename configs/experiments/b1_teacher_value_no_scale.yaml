@@ -2,22 +2,23 @@ _base_:
   - ../base/nuscenes.yaml
   - ../base/student_r50_128x128.yaml
   - ../base/teacher_centerpoint_vox01.yaml
-  - ../base/distillation_roi_v3.yaml
+  - ../base/distillation_center_value.yaml
 
 experiment:
-  name: j4_wl05_wh07
+  name: b1_teacher_value_no_scale
   seed: 0
   description: >-
-    R50 128x128 LiDAR distillation baseline with structured proposals and
-    quality-aware ROI mask. The legacy Python filename says wh08 but its
-    effective w_h is 0.7.
-  legacy_aliases: [param_J4_wl05_wh08]
+    Main baseline: exact-class teacher value on original GT circular Gaussian
+    regions, with max overlap and no adaptive scaling.
+
+teacher:
+  checkpoint: >-
+    ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_cyclic_20e_nus_20220810_030004-9061688e.pth
+  checkpoint_prefix: ""
 
 runtime:
   gpus: 2
   num_nodes: 1
-  # The current DSW PPU runtime uses torch.distributed Gloo; NVIDIA jobs may
-  # override this with runtime.distributed_backend=nccl.
   distributed_backend: gloo
   batch_size_per_device: 16
   accumulate_grad_batches: 1
@@ -25,7 +26,7 @@ runtime:
   precision: "16"
   gradient_clip_val: 35.0
   deterministic: true
-  output_dir: outputs/j4_wl05_wh07
+  output_dir: outputs/b1_teacher_value_no_scale
   resume_from: null
 
 ema:
@@ -45,7 +46,3 @@ optimizer:
 scheduler:
   type: MultiStepLR
   milestones: [19, 23]
-  # Explicit no-op values keep inherited scientific config diffs stable.
-  warmup_steps: 0
-  warmup_ratio: 0.001
-  min_lr_ratio: 0.0

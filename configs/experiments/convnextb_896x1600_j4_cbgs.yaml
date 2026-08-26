@@ -1,0 +1,63 @@
+_base_:
+  - ../base/nuscenes.yaml
+  - ../base/student_convnextb_896x1600.yaml
+  - ../base/teacher_centerpoint_vox01.yaml
+  - ../base/distillation_roi_v3.yaml
+
+experiment:
+  name: convnextb_896x1600_j4_cbgs
+  seed: 0
+  description: >-
+    ConvNeXt-B leaderboard configuration with five temporal frames, ROI-V3,
+    CBGS, train+val, gradient checkpointing, and linear-warmup cosine decay.
+  legacy_aliases: [LidarDistill_convnextb_900x1600_J4_wl05_wh08_cbgs]
+
+data:
+  split: trainval
+  use_cbgs: true
+
+# Preserve the teacher selected by the leaderboard entry. Proposal decoding is
+# explicit and independent from the student detection head.
+teacher:
+  checkpoint: outputs/train_teacher_centerpoint/checkpoints/step_step=50200.ckpt
+  proposal:
+    score_threshold: 0.15
+
+loss:
+  feature_weight: 0.6
+  response_weight: 0.6
+
+runtime:
+  gpus: 8
+  num_nodes: 1
+  distributed_backend: gloo
+  batch_size_per_device: 2
+  accumulate_grad_batches: 1
+  max_epochs: 20
+  precision: "16"
+  gradient_clip_val: 5.0
+  deterministic: false
+  find_unused_parameters: false
+  ddp_static_graph: true
+  output_dir: outputs/convnextb_896x1600_j4_cbgs
+  resume_from: null
+
+ema:
+  enabled: false
+
+checkpoint:
+  save_top_k: 3
+  save_last: true
+  every_n_epochs: 1
+
+optimizer:
+  type: AdamW
+  base_lr_at_global_batch_64: 0.0002
+  weight_decay: 0.01
+  backbone_lr_mult: 0.1
+
+scheduler:
+  type: LinearWarmupCosine
+  warmup_steps: 1000
+  warmup_ratio: 0.001
+  min_lr_ratio: 0.0

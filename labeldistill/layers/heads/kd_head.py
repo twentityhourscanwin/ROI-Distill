@@ -18,6 +18,40 @@ from labeldistill.utils.bev_mask import gen_labelinput
 __all__ = ['KDHead']
 
 
+def _align_gt_values_to_tasks(gt_labels, gt_values, class_names,
+                              target_masks):
+    """Align per-GT values with CenterHead's class-grouped target slots."""
+    if len(gt_labels) != len(gt_values):
+        raise ValueError('GT labels and GT values must have equal batch size')
+    if len(target_masks) != len(class_names):
+        raise ValueError('Target masks must contain one tensor per task')
+
+    aligned_tasks = []
+    class_offset = 0
+    for task_id, task_classes in enumerate(class_names):
+        task_samples = []
+        for batch_idx, (labels, values) in enumerate(zip(gt_labels, gt_values)):
+            if len(labels) != len(values):
+                raise ValueError(
+                    'Every sample must contain one response-valid value per GT')
+            grouped = [
+                values[labels == class_id]
+                for class_id in range(
+                    class_offset, class_offset + len(task_classes))
+            ]
+            grouped = torch.cat(grouped) if grouped else values.new_zeros(0)
+            target = target_masks[task_id][batch_idx]
+            aligned = target.new_zeros(target.shape, dtype=torch.float32)
+            count = min(grouped.numel(), aligned.numel())
+            if count:
+                aligned[:count] = grouped[:count].to(
+                    device=aligned.device, dtype=aligned.dtype)
+            task_samples.append(aligned)
+        aligned_tasks.append(torch.stack(task_samples))
+        class_offset += len(task_classes)
+    return aligned_tasks
+
+
 bev_backbone_conf = dict(
     type='ResNet',
     in_channels=80,
@@ -485,10 +519,19 @@ class KDHead(CenterHead):
             return_loss += loss_heatmap
         return return_loss
 
-    def response_loss(self, targets, preds_dicts, teacher_dicts, **kwargs):
+    def response_loss(self, targets, preds_dicts, teacher_dicts,
+                      gt_labels=None, response_valid_masks=None, **kwargs):
         heatmaps, anno_boxes, inds, masks = targets
         det_loss = 0
         response_loss = 0
+
+        aligned_response_masks = None
+        if response_valid_masks is not None:
+            if gt_labels is None:
+                raise ValueError(
+                    'gt_labels are required with response_valid_masks')
+            aligned_response_masks = _align_gt_values_to_tasks(
+                gt_labels, response_valid_masks, self.class_names, masks)
 
         for task_id, (preds_dict, teacher_dict) in enumerate(zip(preds_dicts, teacher_dicts)):
             student_heatmap = clip_sigmoid(preds_dict[0]['heatmap'])
@@ -562,10 +605,25 @@ class KDHead(CenterHead):
                                        bbox_weights,
                                        avg_factor=num)
 
-            loss_bbox_distill = self.loss_bbox(pred,
-                                               teacher,
-                                               bbox_weights,
-                                               avg_factor=num)
+            response_bbox_weights = bbox_weights
+            response_avg_factor = num
+            if aligned_response_masks is not None:
+                response_slot_mask = (
+                    aligned_response_masks[task_id]
+                    * masks[task_id].float()
+                )
+                response_bbox_weights = (
+                    bbox_weights * response_slot_mask.unsqueeze(2))
+                response_num = response_slot_mask.sum()
+                response_avg_factor = torch.clamp(reduce_mean(
+                    target_box.new_tensor(response_num)),
+                    min=1e-4).item()
+
+            loss_bbox_distill = self.loss_bbox(
+                pred,
+                teacher,
+                response_bbox_weights,
+                avg_factor=response_avg_factor)
 
             det_loss += loss_bbox
             det_loss += loss_heatmap

@@ -1,13 +1,21 @@
-# LabelDistill YAML 配置化与框架迭代方案
+# LabelDistill YAML 配置化与框架迭代方案（历史文档）
 
-> 日期：2026-08-19  
-> 当前迭代基线：`labeldistill/exps/nuscenes/ablation_param/param_J4_wl05_wh08.py`  
-> 说明：当前文件名包含 `wh08`，但实际配置是 `w_h=0.7`。后续 YAML 应按真实参数命名为 `j4_wl05_wh07`，旧名称只作为兼容别名保留。
+> **已于 2026-08-23 被 center-value baseline 取代。** 本文保留的是旧 J4
+> 配置迁移过程与历史验收记录，不再代表当前训练入口。旧网络派生的
+> `ablation_module`、`ablation_param` YAML、批量脚本、迁移测试和归档源码
+> 已移除；当前入口见 `labeldistill/docs/训练命令.md` 和
+> `configs/experiments/center_value_baseline_cp50200.yaml`。本文后续出现的旧命令
+> 仅用于解释历史决策，不应直接执行。
+
+> 日期：2026-08-19；最近更新：2026-08-20
+> 当前迭代基线：`configs/experiments/j4_wl05_wh07.yaml`
+> 说明：历史文件 `param_J4_wl05_wh08.py` 的实际配置是 `w_h=0.7`，现已归档；错误旧名称仅作为配置兼容别名保留。
 > 实施分支：`codex/yaml-builder`；迁移前基线：`74cfe3f`；首版实现：`c3548b4`。
 
-> 实施状态（2026-08-19）：配置基础设施和 J4 builder 首版已经落地，包括 typed schema、`_base_` 继承、dot-list override、跨字段校验、派生参数、config diff、resolved config、环境/源码 SHA256 审计、versioned Python preset、通用 J4 experiment 以及 `tools/train.py`。`j4_wl05_wh07` 与 `j4_wl05_wh08` 已有 YAML。当前测试为 74 passed（因整套 pytest 在 DSW 上偶发长时间无输出，按 53 + 21 两组执行验证）。
+> 实施状态（2026-08-20）：配置基础设施、J4 builder、`tools/train.py`、`tools/evaluate.py`、checkpoint-only resume/evaluate 和数值快照工具已经落地。`ablation_param` 的 15 个参数实验和 `ablation_module` 的 6 个模块实验均已有 YAML；21 个 legacy 运行脚本已从 Python import 路径移除并归档到 `archive/legacy_experiments/2026-08-20/`，四个批量 shell 启动器也已改用统一 YAML 入口。
+> 顶层项目回归集 `pytest -q tests` 为 `127 passed`。不带目录限制的全仓 pytest 还会收集 vendored nuScenes tracking tests；当前环境缺少其可选依赖 `motmetrics`，不属于本次 LabelDistill 回归口径。
 >
-> 当前边界：builder 已能从 YAML 构造完整 143,582,490 参数 J4 模型，并与 legacy J4 的完整模型配置对象一致；已完成 `1 GPU × batch 1 × 1 step`、双 PPU Gloo DDP 一步训练，以及从 `global_step=1` 恢复到 `global_step=2` 的 resume 验收。仍需固化同一真实 batch 的 legacy/YAML 中间输出与 loss 数值快照；在这项等价性验收完成前不得批量删除 legacy Python entry。
+> 当前边界：J4 legacy/YAML 已在同一真实 batch、共享 state_dict 下完成 110 个 tensor 的快照门禁，覆盖 raw predictions、proposals、MatchResult、scaled GT、mask、四项 loss 和 total loss；A0～A5 已建立新框架快照。A3 双 PPU Gloo DDP、checkpoint-only resume（`global_step=1 → 2`）、A5/P3 单卡一步和 A5 checkpoint-only evaluate prediction smoke 均通过。R50/J4 两个消融族的 legacy 删除硬门槛已满足并完成归档；`find_best_v3` 已按项目决策直接删除、不再迁移。ConvNeXt-B 896×1600 已进入 schema/preset/builder 并有独立打榜 YAML，真实对象、teacher 加载、单卡 optimizer step、checkpoint-only resume/evaluate 和双 PPU Gloo DDP 已通过。legacy Python entry 仅作历史对照；R101 尚未迁移。
 
 ## 1. 目标
 
@@ -144,8 +152,10 @@ ROI_LABEL_DISTILL/
     experiments/
       j4_wl05_wh07.yaml
       j4_wl05_wh08.yaml
-      ablation_exact_class.yaml
-      ablation_no_scaler.yaml
+      ablation_param/
+        j1_wl02_wh05.yaml ... mu_020.yaml
+      ablation_module/
+        a0_baseline_full_gt.yaml ... a5_roi_scale.yaml
 
   labeldistill/
     config/
@@ -167,9 +177,12 @@ ROI_LABEL_DISTILL/
   tools/
     resolve_config.py
     train.py
+    evaluate.py
+    numerical_snapshot.py
+    validate_ablation_migration.py
 ```
 
-`presets/j4.py` 保存 J4 的版本化低层网络构造细节；`experiments/j4.py` 保存通用训练行为；builder 只负责把已校验配置组装为对象。旧的 `labeldistill/exps/nuscenes/.../*.py` 在数值等价性验收完成前保留为 legacy entry，不立即删除。`tools/evaluate.py` 尚未实现，不能在文档中作为可用入口引用。
+`presets/j4.py` 保存 J4 的版本化低层网络构造细节；`experiments/j4.py` 保存通用训练行为；builder 只负责把已校验配置组装为对象。`train.py` 和 `evaluate.py` 都可从 YAML、保存的 `resolved_config.yaml` 或 checkpoint 内嵌 resolved config 启动。有限 test batch 自动使用 prediction-only，不运行要求完整 sample token 的 nuScenes 指标器。
 
 ## 5. 已采用的技术方案
 
@@ -447,7 +460,7 @@ builder 负责：
 
 ### 阶段 A：冻结当前行为
 
-当前状态：**部分完成**。已有接口回归、legacy J4 ↔ YAML 完整配置对象对齐，以及真实 batch 的新入口训练 smoke test；legacy/new 同 batch 的中间输出与 loss 快照仍未固化。
+当前状态：**已完成**。固定 batch 0 的输入 tensor 指纹、legacy/YAML 两份完整快照和逐 tensor comparison report 已保存到 `outputs/acceptance/j4_legacy_yaml_batch0/`。
 
 1. 保留当前 J4 Python entry。
 2. 固定一个小型真实 batch 或记录一个 batch 的输入索引。
@@ -468,30 +481,34 @@ builder 负责：
 
 ### 阶段 C：迁移 J4
 
-当前状态：**builder 接管首版已完成，数值等价性验收进行中**。J4 YAML 已能通过 `tools/train.py` 构造通用 `J4Experiment`，不再依赖 legacy J4 class；preset 与 legacy 的 backbone/head/teacher/proposal 配置已做完整对象级 parity。单卡、双卡 DDP、checkpoint 保存和 resume 已通过，尚缺 legacy/new 同 batch 数值快照。
+当前状态：**已完成 builder 接管和数值等价性验收**。J4 YAML 通过 `tools/train.py` 构造通用 `J4Experiment`，不依赖 legacy J4 class；preset 与 legacy 的 backbone/head/teacher/proposal 配置已做完整对象级 parity，真实 batch 的 110 个 tensor 门禁已通过。
 
 1. **已完成**：将 J4 的全部有效实验参数逐项迁移到 YAML。
 2. **已完成**：通过 builder 构造与旧 J4 相同的模型和训练组件。
-3. **部分完成**：参数数量和完整配置对象已对齐；proposal、mask 和 loss 的同 batch 数值快照待补。
+3. **已完成**：参数数量、完整配置对象、raw predictions、proposal、MatchResult、scaled GT、mask 和 loss 快照已对齐。
 4. **已完成**：通过单卡短程 smoke test。
 5. **已完成**：通过双卡 DDP、checkpoint 和 resume smoke test。
 
 ### 阶段 D：迁移消融实验
+
+当前状态：**配置、数值基准和代表性运行验收已完成**。`ablation_param` 已按 J1～J5、P3 lambda 和 mu 的有效单变量生成 15 个 YAML，并通过“排除 experiment/runtime/evaluation 身份字段后只允许目标科学变量变化”的自动 diff 门禁；A0～A5 六个模块实验各有固定 batch 新框架快照。迁移统一采用当前 structured/ragged J4 实现，不要求与历史脚本 total loss 相等。
 
 1. J1/J2/J3/J5 只保留 YAML 参数差异。
 2. P3 lambda 系列只覆盖 loss weight。
 3. mu 系列只覆盖 scaler 参数。
 4. 自动生成 base-to-experiment config diff。
 
-不能在未审计源码差异时直接假设这些实验只改变一个参数。当前 J1/J2/J3/J5、P3 和 mu 脚本与已经重构的 J4 各有约 179～181 行差异，其中既可能包含旧实现，也可能包含真实实验语义。迁移时必须逐项分类为：
+迁移时没有根据文件名直接假设这些实验只改变一个参数，而是审计了 J1/J2/J3/J5、P3 和 mu 脚本相对已重构 J4 的约 179～181 行差异。审计结果已分类为：
 
 - 应统一到新 J4 的历史实现差异；
 - 需要进入 schema/registry 的有效实验开关；
 - 已确认不再需要复现的废弃行为。
 
+其中参数实验真正保留的科学变量只有 mask 权重、feature loss 权重或 scaler `mu`；proposal/GT padding、重复 teacher 和旧 feature-loss 通道求和均统一到当前公共实现。`tools/validate_ablation_migration.py` 会对每个参数 YAML 的实际 scientific config diff 做自动门禁。
+
 ### 阶段 E：清理 legacy
 
-满足以下条件后再归档旧 Python 实验脚本：
+当前两个指定消融族已满足以下条件，并于 2026-08-20 完成归档：
 
 - YAML J4 能从头训练。
 - 能恢复旧/新 checkpoint。
@@ -500,7 +517,7 @@ builder 负责：
 - 实验记录已经改用 resolved config 标识。
 - 新测试和审计逻辑已经不再 import 或硬编码该 legacy entry。
 
-legacy 清理按实验族分别验收，不要求等待所有实验一次性迁移完毕。详细清理顺序和保护范围见第 14 节。
+legacy 清理按实验族分别验收，不要求等待所有实验一次性迁移完毕。`ablation_param` 和 `ablation_module` 已完成；`find_best_v3` 已按项目决策直接删除且不再迁移；ConvNeXt-B 已完成 YAML 配置与构造阶段，下一步是 GPU 运行验收。R101 不阻塞 ConvNeXt-B 打榜入口。详细清理顺序和保护范围见第 14 节。
 
 ## 12. 验收标准
 
@@ -529,22 +546,72 @@ YAML 化迁移不能只以“程序能启动”为标准。至少需要验证：
 - response loss
 - total loss
 
-框架迁移阶段原则上应完全一致；若因移除旧的 256/128 截断产生差异，应只出现在超过旧上限的样本，并单独记录。
+J4 对拍使用相同 batch 和共享 state_dict。在当前 PPU TF32 环境中，两次独立 student 卷积前向存在约 `6e-3` 的重复运行漂移，因此门禁为 `atol=1e-2, rtol=1e-4`；teacher、ProposalBatch、MatchResult、scaled GT 和 mask 为精确一致，110 个 tensor 全部通过。A0～A5 因有意统一 ragged proposal、单次 teacher 和 feature channel-mean，不与旧脚本 total loss 强制相等，而以当前框架快照作为后续回归基准。
 
 ### 12.3 运行验证
 
 2026-08-19 实测：当前 DSW 的两张 `PPU-ZW810E` 通过 Gloo 完成单步 DDP；该环境无 `libcuda.so`，因此 NCCL 不适用。单卡训练、双卡 checkpoint 保存以及恢复后 `global_step: 1 → 2` 均已通过。
 
 - **通过**：`1 GPU × batch 1 × 1 step` 前向、反向和 optimizer step。
-- **通过**：`2 PPU × batch 1/device × 1 step` Gloo DDP。
+- **通过**：A0 full-channel + GT heatmap 的 `1 GPU × batch 1 × 1 step` smoke test。
+- **通过**：A5 和 P3 lambda=0.4 的 `1 GPU × batch 1 × 1 step` smoke test。
+- **通过**：A3 的 `2 PPU × batch 1/device × 1 step` Gloo DDP。
 - **通过**：checkpoint 包含 schema、resolved config、teacher SHA256、optimizer 和 scheduler 状态。
 - **通过**：从 `last.ckpt` 恢复后 `global_step: 1 → 2`，optimizer 和 scheduler 连续。
+- **通过**：`evaluate.py --checkpoint --limit-test-batches=1` 恢复 A5 并导出 prediction-only 结果。
+- **通过**：epoch 23 legacy J4 checkpoint 使用显式 J4 YAML 加载并完成单 batch prediction-only；504 个 legacy 顶层 teacher 键仅在与 `model.centerpoint.*` 完全一致时安全移除。
 - **待目标集群验证**：正式训练目标卡数、吞吐与长程稳定性；NVIDIA 环境使用 NCCL。
 
-本轮回归按两组执行，共 `74 passed`：
+本轮顶层项目回归 `pytest -q tests`：`120 passed`。新增覆盖 checkpoint 内嵌配置、legacy 重复 teacher 键的严格兼容、prediction-only evaluate、参数族 scientific config diff 门禁和数值 snapshot 比较器。无目录限制的全仓 pytest 会额外收集 vendored nuScenes tracking tests，并因当前环境未安装可选依赖 `motmetrics` 在 collection 阶段报错；该项不是本项目测试失败。
 
-- 算法、数据契约和 BEV mask：`53 passed`。
-- 配置系统、完整 legacy parity 和 builder：`21 passed`。
+### 12.4 验收产物与复跑入口
+
+所有数值产物均位于 `outputs/acceptance/`，属于验收资产，不作为普通源码提交的大二进制：
+
+| 产物 | 结论 | 内容 |
+| --- | --- | --- |
+| `j4_legacy_yaml_batch0/comparison.json` | `passed=true` | 110 个 tensor 的逐路径误差与门禁结果 |
+| `j4_legacy_yaml_batch0/{legacy,yaml}_snapshot.pt` | 已固化 | 同一 batch、共享 state_dict 的两份完整快照 |
+| `ablation_module/*/snapshot.pt` | A0～A5 齐全 | 新框架 raw predictions、中间态、mask 和 losses |
+| `ablation_migration_report.json` | `passed=true` | 参数 diff 门禁、模块策略、snapshot SHA256 和 loss 摘要 |
+| `runtime_acceptance.json` | `passed=true` | A5/P3 单卡、A3 DDP/resume、新/旧 checkpoint evaluate smoke 摘要 |
+
+A0～A5 固定 batch 的 total loss 为：
+
+| 实验 | A0 | A1 | A2 | A3 | A4 | A5 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| total loss | 18999.0137 | 18999.2969 | 18999.2930 | 18999.2734 | 18999.0430 | 18999.0371 |
+
+核心复跑命令：
+
+```bash
+# 复核已经固化的 J4 legacy/YAML 同 batch 快照
+python tools/numerical_snapshot.py compare \
+  --left outputs/acceptance/j4_legacy_yaml_batch0/legacy_snapshot.pt \
+  --right outputs/acceptance/j4_legacy_yaml_batch0/yaml_snapshot.pt \
+  --output outputs/acceptance/j4_legacy_yaml_batch0/comparison.json \
+  --atol 1e-2 --rtol 1e-4
+
+# 单个 YAML 的新框架快照；A0～A5 分别执行
+python tools/numerical_snapshot.py capture \
+  --config configs/experiments/ablation_module/a3_full_method.yaml \
+  --output outputs/acceptance/ablation_module/a3_full_method/snapshot.pt
+
+# 参数族 diff + A0～A5 snapshot 完整性门禁
+python tools/validate_ablation_migration.py
+
+# checkpoint 内嵌 resolved config 恢复训练
+python tools/train.py --checkpoint /path/to/last.ckpt runtime.max_epochs=2
+
+# 完整评测：不限制 test batch，执行 nuScenes metrics
+python tools/evaluate.py --checkpoint /path/to/last.ckpt
+
+# 有限 batch 入口 smoke：自动 prediction-only，不产生伪指标
+python tools/evaluate.py --checkpoint /path/to/last.ckpt \
+  --limit-test-batches 1
+```
+
+旧 checkpoint 若没有内嵌 `labeldistill_resolved_config`，必须显式传入 `--config`。当前已验证新 checkpoint 的 checkpoint-only train/resume/evaluate，也已验证 `outputs/param_J4_wl05_wh08/checkpoints/epoch_epoch=23.ckpt` 使用显式 J4 YAML 加载和推理。该 legacy checkpoint 额外包含 504 个顶层 `centerpoint.*` 键，且都与对应 `model.centerpoint.*` 完全相同；兼容代码只移除这种可证明的重复项，缺少配对或内容冲突时会硬失败。
 
 ## 13. 不在第一阶段同时修改的内容
 
@@ -580,19 +647,21 @@ YAML 化后的目标确实是删除大量重复 Python entry，但删除动作�
 2. 历史源码先归档并记录 SHA256，再从运行目录移除。
 3. 每个实验族分别完成 YAML、builder、checkpoint 和数值验收后再删除对应 Python entry。
 4. `data/`、`ckpts/`、`outputs/` 和实验文档属于用户资产，不进入自动清理范围。
-5. 当前目录不是 Git 仓库，不能依赖 Git 找回误删内容；在建立版本历史或外部归档前，对唯一源码采取保守策略。
+5. 当前目录已有 Git 历史，但工作区包含用户未提交变更；归档/删除只处理明确批准的实验族，且不能依赖覆盖工作区来恢复误删内容。
 
 ### 14.2 当前仓库盘点
 
-截至 2026-08-19：
+2026-08-19 的迁移前盘点为：
 
 - `labeldistill/exps/` 下有 44 个有效 Python 文件，共约 15094 行。
 - `ablation_param/` 有 15 个参数实验脚本，每个约 367 行。
-- `find_best_v3/` 有 6 个实验脚本；后 5 个相对 baseline 只变化 6～8 行，是最适合优先 YAML 化的一组。
+- `find_best_v3/` 在迁移前有 6 个实验脚本；2026-08-20 按项目决策直接删除，不再进入 YAML builder。
 - 有 63 个 `__pycache__` 目录、267 个 `.pyc` 文件。
 - `build/` 约 48 MB。
 - Python 3.8/3.9 的旧 CUDA 扩展约 18.09 MB；当前运行环境是 Python 3.10，实际加载 `cpython-310` 扩展。
 - `.ipynb_checkpoints/` 约 0.58 MB，其中存在数份没有正式源码副本的历史文件。
+
+2026-08-20 本批执行结果：`ablation_param` 与 `ablation_module` 共 21 个可运行脚本、7557 行源码（另含 2 个 `__init__.py`）已移出运行目录。归档位于 `archive/legacy_experiments/2026-08-20/`，`manifest.json` 保存逐文件原路径、归档路径、大小、行数和 SHA256。
 
 ### 14.3 第一批：可立即清理的生成物
 
@@ -619,7 +688,7 @@ labeldistill/ops/voxel_pooling_inference/
 
 ### 14.4 第二批：先归档再删除的历史文件
 
-以下文件没有当前代码引用，但在没有 Git 历史的情况下不直接删除：
+以下文件没有当前代码引用，但仍不直接删除；Git 历史不能替代对用户工作区和唯一历史源码的显式归档：
 
 - `labeldistill/models/备份lidardistill.py`
 - `labeldistill/models/澶囦唤lidardistill.py`
@@ -646,7 +715,7 @@ fp_distill-checkpoint.py
 
 #### 14.5.1 `find_best_v3`
 
-优先迁移。该组脚本结构高度重复，后 5 个实验相对 baseline 只变化 6～8 行。应建立一个 baseline YAML 和若干差异 YAML，通过 builder 验收后删除：
+**已直接删除，不再迁移。** 2026-08-20 按项目决策从运行目录移除以下实验族，不建立对应 YAML：
 
 ```text
 labeldistill/exps/nuscenes/find_best_v3/
@@ -654,7 +723,7 @@ labeldistill/exps/nuscenes/find_best_v3/
 
 #### 14.5.2 `ablation_param`
 
-迁移 J1～J5、P3 lambda 和 mu 系列。由于这些脚本尚未同步 J4 的近期框架重构，必须先完成第 11 节阶段 D 的差异分类，不能只根据文件名提取几个数值后直接删除。
+**已完成。** J1～J5、P3 lambda 和 mu 系列的 YAML、builder、数值基准、config diff 门禁和代表性旧 checkpoint 显式配置恢复均已通过。测试、审计、可视化工具、训练文档和 shell 启动器不再依赖 legacy class。
 
 最终应由一个公共实现加 YAML override 替代当前 15 份完整脚本：
 
@@ -662,15 +731,17 @@ labeldistill/exps/nuscenes/find_best_v3/
 labeldistill/exps/nuscenes/ablation_param/
 ```
 
-旧 `param_J4_wl05_wh08.py` 在 builder 接管 J4、对齐测试不再 import 它、审计逻辑不再硬编码它之后才能归档。
+原目录已从运行路径移除，15 个脚本保存在 `archive/legacy_experiments/2026-08-20/ablation_param/`。
 
 #### 14.5.3 `ablation_module`
 
-A0～A5 包含不同模型与 region policy 行为。应先把差异表达为明确的组件类型或开关，再删除：
+A0～A5 的模型与 region policy 差异已经表达为明确配置，并完成六份数值快照；A3 DDP/resume、A5 单卡、evaluate smoke 和 legacy J4 checkpoint 兼容均已通过。
 
 ```text
 labeldistill/exps/nuscenes/ablation_module/
 ```
+
+**已完成归档。** 原目录已从运行路径移除，6 个脚本保存在 `archive/legacy_experiments/2026-08-20/ablation_module/`。
 
 #### 14.5.4 其他实验和 backbone entry
 
@@ -683,9 +754,11 @@ labeldistill/exps/nuscenes/ablation_module/
 
 这些入口涉及 student backbone、teacher training、普通检测和蒸馏等不同用途，不作为一批无差别删除。
 
-#### 14.5.5 旧 shell 启动器
+打榜用 ConvNeXt-B 已新增 `configs/experiments/convnextb_896x1600_j4_cbgs.yaml`，由 `student.type=camera_bevdepth_convnextb` 选择独立 preset，并通过公共 J4 builder 构造。该 YAML 独立控制 896×1600、CBGS、train+val、gradient checkpoint、warmup-cosine、LR multiplier、20 epoch 和 DDP policy，不复用 R50 训练设置。单卡 batch 1 optimizer step、checkpoint-only `global_step: 1 → 2` resume、prediction-only evaluate 和双 PPU Gloo DDP 均已通过，checkpoint 包含 resolved config、optimizer 与 scheduler 状态。legacy Python entry 仅作历史对照；R101 尚无等价 YAML。
 
-YAML train/evaluate/sweep 工具可用后再删除：
+#### 14.5.5 批量 shell 启动器
+
+以下四个脚本已保留为便捷批量入口，但内容已切换为调用 `tools/train.py --config ...` 或 `tools/evaluate.py --config ... --checkpoint ...`，不再调用 legacy Python experiment：
 
 ```text
 run_ablation_module.sh
@@ -717,6 +790,7 @@ train_ablation_param.sh
 - 当前 Python ABI 所需的 CUDA 扩展。
 - `tests/` 和数值回归基准。
 - `data/`、`ckpts/`、`outputs/`、`docs/`。
+- 尚未 YAML 化的 R101 entry，以及尚未完成 GPU 运行验收的 ConvNeXt-B legacy entry。
 
 历史 outputs 是否归档或删除是独立的数据保留决策，不与源码清理绑定，也不执行自动清理。
 
@@ -744,4 +818,4 @@ YAML 管理适合当前项目，但关键不是简单地把 Python 字典复制�
 + 单 batch 数值回归
 ```
 
-配置基础设施和 J4 builder 首版已经完成，GPU 前反向、双卡 DDP、checkpoint 与 resume 验收也已通过。下一步应集中补齐阶段 A 的 legacy/new 同一真实 batch 数值快照和评测入口。与此同时可以独立执行第 14.3 节的生成物清理，但 legacy 实验脚本必须等对应 YAML 实验完成数值等价性验收后，再按实验族分批归档。
+配置基础设施、J4 builder、两个指定消融实验族、真实 batch 数值快照、代表性短程运行、旧 checkpoint 兼容以及统一 train/evaluate/resume 入口均已完成。`ablation_param` 与 `ablation_module` 的 21 个重复运行脚本已经退出运行目录；`find_best_v3` 也已按决策直接删除。ConvNeXt-B 现已由独立 YAML 控制并通过配置解析、contract test、真实模型构造、teacher checkpoint 加载、单卡 optimizer step、checkpoint-only resume/evaluate 和双卡 DDP。下一步是正式目标卡数长程训练与完整 6019-sample nuScenes 评测；是否删除 ConvNeXt-B legacy 对照入口和是否迁移 R101 可独立决定。
