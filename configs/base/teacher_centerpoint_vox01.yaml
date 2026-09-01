@@ -1,8 +1,8 @@
 teacher:
   type: frozen_centerpoint
   checkpoint: >-
-    ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_cyclic_20e_nus_20220810_030004-9061688e.pth
-  checkpoint_prefix: ""
+    ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth
+  checkpoint_prefix: "model.centerpoint."
   proposal:
     score_threshold: 0.1
     max_num: 500

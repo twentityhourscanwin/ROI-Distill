@@ -1,13 +1,12 @@
 """Build PyTorch Lightning runtime objects from resolved config."""
 
 from datetime import timedelta
-from pathlib import Path
-
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 
 from labeldistill.callbacks.ema import EMACallback
+from labeldistill.config.run import checkpoint_directory
 
 
 def build_trainer(config, experiment, *, for_evaluation=False):
@@ -19,10 +18,7 @@ def build_trainer(config, experiment, *, for_evaluation=False):
         '32': 32,
         '64': 64,
     }
-    checkpoint_dir = (
-        Path(config.checkpoint.root_dir).expanduser()
-        / config.experiment.name
-    )
+    checkpoint_dir = checkpoint_directory(config)
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
         filename='epoch_{epoch:02d}',

@@ -26,9 +26,21 @@ class CenterPoint(nn.Module):
         self.head = BEVDepthHead(**head_conf)
         self.centerpoint = build_detector(lidar_conf)
 
-        lidar_ckpt_path = './pretrained/centerpoint_01voxel_second_secfpn_circlenms_4x8_cyclic_20e_nus_20220810_030004-9061688e.pth'
+        lidar_ckpt_path = (
+            './ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth')
         lidar_params = torch.load(lidar_ckpt_path, map_location='cpu')
-        self.centerpoint.load_state_dict(lidar_params['state_dict'])
+        state_dict = lidar_params.get('state_dict', lidar_params)
+        prefix = 'model.centerpoint.'
+        teacher_state = {
+            key[len(prefix):]: value
+            for key, value in state_dict.items()
+            if key.startswith(prefix)
+        }
+        if not teacher_state:
+            raise RuntimeError(
+                f'No CenterPoint weights with prefix {prefix!r} in '
+                f'{lidar_ckpt_path}')
+        self.centerpoint.load_state_dict(teacher_state)
 
     def forward(
         self,

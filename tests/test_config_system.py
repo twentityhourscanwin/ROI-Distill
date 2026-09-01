@@ -1,19 +1,88 @@
 from pathlib import Path
+from datetime import datetime
 
 import pytest
 from omegaconf import OmegaConf
 import torch
 
 from labeldistill.config import (
+    RUN_ID_ENV,
     ConfigLoadError,
     ConfigValidationError,
     checkpoint_config_file,
+    checkpoint_directory,
+    dated_directory,
+    generate_run_id,
+    load_training_bundle,
     load_and_resolve_config,
     save_config_artifacts,
 )
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_training_run_directories_share_a_sortable_timestamp():
+    run_id = generate_run_id(datetime(2026, 8, 28, 15, 30, 12))
+    assert run_id == "20260828_153012"
+    assert dated_directory("outputs/b1", run_id) == (
+        "outputs/b1_20260828_153012")
+    assert dated_directory(
+        "outputs/b1_20260827_101500",
+        run_id,
+        previous_run_id="20260827_101500",
+    ) == "outputs/b1_20260828_153012"
+
+
+def test_checkpoint_directory_uses_the_resolved_run_id():
+    config = OmegaConf.create({
+        "experiment": {"name": "b1"},
+        "runtime": {"run_id": "20260828_153012"},
+        "checkpoint": {"root_dir": "/checkpoints"},
+    })
+    assert checkpoint_directory(config) == Path(
+        "/checkpoints/b1_20260828_153012")
+
+
+def test_new_training_bundle_assigns_one_run_id_to_output_and_checkpoint(
+        monkeypatch):
+    monkeypatch.setenv(RUN_ID_ENV, "20260828_153012")
+    bundle = load_training_bundle(
+        PROJECT_ROOT / "configs/experiments/b1_teacher_value_no_scale.yaml",
+        [],
+        PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+
+    assert bundle.config.runtime.run_id == "20260828_153012"
+    assert bundle.config.runtime.output_dir == (
+        "outputs/b1_teacher_value_no_scale_20260828_153012")
+    assert checkpoint_directory(bundle.config) == Path(
+        "/mnt/nas_data/guqiupeng/checkpoint_nes/"
+        "b1_teacher_value_no_scale_20260828_153012")
+
+
+def test_resume_keeps_the_existing_run_identity_and_directories(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv(RUN_ID_ENV, "20260828_235959")
+    checkpoint = tmp_path / "last.ckpt"
+    checkpoint.touch()
+    existing_output = "outputs/b1_teacher_value_no_scale_20260828_153012"
+    bundle = load_training_bundle(
+        PROJECT_ROOT / "configs/experiments/b1_teacher_value_no_scale.yaml",
+        [
+            "runtime.run_id=20260828_153012",
+            f"runtime.output_dir={existing_output}",
+            f"runtime.resume_from={checkpoint}",
+        ],
+        PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+
+    assert bundle.config.runtime.run_id == "20260828_153012"
+    assert bundle.config.runtime.output_dir == existing_output
+    assert checkpoint_directory(bundle.config).name == (
+        "b1_teacher_value_no_scale_20260828_153012")
 
 
 def test_checkpoint_embedded_resolved_config_is_a_supported_input(tmp_path):
@@ -60,8 +129,12 @@ def test_j4_baseline_resolves_real_derived_values():
     assert config.region.mask.w_high == 0.7
     assert config.student.temporal_kd_selection == "legacy_half"
     assert config.teacher.proposal.max_num == 500
-    assert config.derived.global_batch_size == 32
-    assert config.derived.effective_learning_rate == pytest.approx(2e-4)
+    assert config.derived.global_batch_size == 256
+    assert config.derived.effective_learning_rate == pytest.approx(4e-4)
+    assert config.optimizer.backbone_lr_mult == pytest.approx(1.0)
+    assert config.scheduler.warmup_steps == 200
+    assert config.scheduler.warmup_ratio == pytest.approx(0.001)
+    assert config.scheduler.gamma == pytest.approx(0.1)
     assert list(config.derived.feature_map_size) == [128, 128]
     assert list(config.derived.bev_cell_size) == [0.8, 0.8]
     assert config.derived.key_frame_count == 5
@@ -87,14 +160,19 @@ def test_center_value_baseline_resolves_strict_low_parameter_policy():
     assert "bicycle" in config.matching.small_classes
     assert config.region.value.type == "normalized_squared_margin"
     assert config.region.value.use_teacher_score is False
-    assert config.region.mask.normalize_per_instance is True
+    assert config.region.mask.normalize_per_instance is False
     assert config.region.mask.overlap_merge == "max"
     assert config.region.scaler.enabled is False
+    assert config.loss.response_bbox_scope == "matched_gt"
     assert config.teacher.checkpoint.endswith(
-        "ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_"
-        "cyclic_20e_nus_20220810_030004-9061688e.pth")
-    assert config.teacher.checkpoint_prefix == ""
-    assert config.loss.feature_roi_reduction == "per_gt_fixed_count"
+        "ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth")
+    assert config.teacher.checkpoint_prefix == "model.centerpoint."
+    assert config.runtime.gpus == 16
+    assert config.runtime.batch_size_per_device == 16
+    assert config.derived.global_batch_size == 256
+    assert config.derived.effective_learning_rate == pytest.approx(4e-4)
+    assert config.optimizer.backbone_lr_mult == pytest.approx(1.0)
+    assert config.scheduler.warmup_steps == 200
 
 
 @pytest.mark.parametrize(
@@ -104,9 +182,10 @@ def test_center_value_baseline_resolves_strict_low_parameter_policy():
         ("matching.strict_less_than=false", "strict_less_than=true"),
         ("matching.trust_radius.small=0", "trust_radius.small must be positive"),
         ("region.value.use_teacher_score=true", "use_teacher_score=false"),
+        ("region.mask.normalize_per_instance=true", "raw per-GT"),
         ("region.mask.overlap_merge=sum", "max overlap"),
-        ("loss.feature_roi_reduction=union_mask_mass",
-         "feature_roi_reduction=per_gt_fixed_count"),
+        ("loss.response_bbox_scope=all_gt",
+         "response_bbox_scope=matched_gt"),
     ],
 )
 def test_center_value_baseline_rejects_semantic_drift(override, message):
@@ -139,12 +218,12 @@ def test_inherited_override_and_cli_override_have_leaf_diff(tmp_path):
 
     assert bundle.config.region.mask.w_high == 0.8
     assert bundle.config.derived.global_batch_size == 16
-    assert bundle.config.derived.effective_learning_rate == pytest.approx(1e-4)
+    assert bundle.config.derived.effective_learning_rate == pytest.approx(2.5e-5)
     assert bundle.config_diff["region.mask.w_high"] == {
         "base": 0.7,
         "resolved": 0.8,
     }
-    assert bundle.config_diff["runtime.gpus"] == {"base": 2, "resolved": 4}
+    assert bundle.config_diff["runtime.gpus"] == {"base": 16, "resolved": 4}
     assert bundle.config_diff["runtime.batch_size_per_device"] == {
         "base": 16,
         "resolved": 4,
@@ -159,6 +238,9 @@ def test_inherited_override_and_cli_override_have_leaf_diff(tmp_path):
         ("distillation.feature_channels=[]", "at least one feature level"),
         ("matching.one_to_one=true", "one_to_one=true is not implemented"),
         ("matching.selection=nearest_distance", "is not supported"),
+        ("scheduler.warmup_steps=-1", "warmup_steps must be non-negative"),
+        ("scheduler.warmup_ratio=0", "warmup_ratio must be in"),
+        ("scheduler.gamma=0", "scheduler.gamma must be in"),
     ],
 )
 def test_invalid_cross_field_config_fails_before_training(override, message):
@@ -223,8 +305,7 @@ def test_audit_artifacts_include_exact_source_and_resolved_config(tmp_path):
     environment = (output / "environment.txt").read_text(encoding="utf-8")
     assert resolved.derived.feature_map_size == [128, 128]
     assert resolved.teacher.checkpoint.endswith(
-        "centerpoint_01voxel_second_secfpn_circlenms_4x8_"
-        "cyclic_20e_nus_20220810_030004-9061688e.pth")
+        "centerpoint_vox01_128x128_20e_10sweeps.pth")
     assert "source_sha256[" in environment
 
 

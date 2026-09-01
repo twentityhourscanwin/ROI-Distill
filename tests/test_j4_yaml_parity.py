@@ -50,10 +50,16 @@ def test_j4_yaml_expands_to_frozen_model_contract():
 
 def test_j4_yaml_locks_optimizer_scheduler_and_region_values():
     config, _ = _j4()
-    assert config.derived.effective_learning_rate == pytest.approx(2e-4)
+    assert config.runtime.gpus == 16
+    assert config.runtime.batch_size_per_device == 16
+    assert config.derived.global_batch_size == 256
+    assert config.derived.effective_learning_rate == pytest.approx(4e-4)
     assert config.optimizer.weight_decay == pytest.approx(1e-2)
-    assert config.optimizer.backbone_lr_mult == pytest.approx(0.5)
+    assert config.optimizer.backbone_lr_mult == pytest.approx(1.0)
     assert config.scheduler.milestones == [19, 23]
+    assert config.scheduler.warmup_steps == 200
+    assert config.scheduler.warmup_ratio == pytest.approx(0.001)
+    assert config.scheduler.gamma == pytest.approx(0.1)
     assert config.region.mask.w_low == pytest.approx(0.5)
     assert config.region.mask.w_high == pytest.approx(0.7)
     assert config.region.scaler.mu == pytest.approx(0.15)

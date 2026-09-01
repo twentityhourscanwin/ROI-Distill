@@ -30,6 +30,7 @@ class RuntimeConfig:
     find_unused_parameters: bool = True
     ddp_static_graph: bool = False
     output_dir: str = MISSING
+    run_id: Optional[str] = None
     resume_from: Optional[str] = None
 
 
@@ -187,7 +188,7 @@ class LossConfig:
     depth_weight: float = 1.0
     feature_weight: float = MISSING
     response_weight: float = 1.0
-    feature_roi_reduction: str = "union_mask_mass"
+    response_bbox_scope: str = "all_gt"
 
 
 @dataclass
@@ -204,6 +205,7 @@ class SchedulerConfig:
     milestones: List[int] = field(default_factory=list)
     warmup_steps: int = 0
     warmup_ratio: float = 0.001
+    gamma: float = 0.1
     min_lr_ratio: float = 0.0
 
 

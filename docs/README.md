@@ -1,69 +1,139 @@
-# 文档索引与维护规则
+# 开发与运行说明
 
-本目录只维护三个核心事实面：当前状态、设计演进、实验事实。除本索引外，不再保存独立的旧方案、旧命令、临时统计或重复说明。
+本文件保存项目的通用信息：当前开发基线、训练/评测命令、目录约定和 Git 工作流。
 
-## 三份核心文档
+## 文档分工
 
-1. [CURRENT_BASELINE.md](CURRENT_BASELINE.md) — 当前唯一被接受的系统快照。只在某个实验被正式采纳时更新，不记录尝试历史。
-2. [DESIGN_LOG.md](DESIGN_LOG.md) — 设计决策与网络演进。按决策编号追加，记录为什么改、如何验证、最终是否采纳。
-3. [EXPERIMENT_LEDGER.md](EXPERIMENT_LEDGER.md) — 实验运行唯一台账。按实验 ID 追加；失败、无效和中止的运行同样保留。
+| 文档 | 用途 |
+| --- | --- |
+| [VAL_RESULTS.md](VAL_RESULTS.md) | 简洁查看当前实验结果 |
+| [EXPERIMENT_LEDGER.md](EXPERIMENT_LEDGER.md) | 查看单次实验的完整配置、产物和有效性 |
+| [IDEA_LOG.md](IDEA_LOG.md) | 根据结果分析问题并规划下一轮 idea |
+| [README.md](README.md) | 通用训练命令、当前 dev 设置和 Git 规则 |
 
-## 真相优先级
+## 当前开发状态
 
-发生冲突时按以下顺序判断：
+| 项目 | 当前状态 |
+| --- | --- |
+| 当前 Git 分支 | `dev` |
+| dev 起点 | 本文档所在提交；使用 `git rev-parse HEAD` 获取实际 SHA |
+| Working tree | dev 起点提交后应保持 clean；新的修改只在短期 idea 分支进行 |
+| 上一个 main HEAD | `f5f1400` |
+| 当前固定参考 | B1：mAP 0.3881，NDS 0.5047 |
+| 当前领先候选 | B2：mAP 0.3922，NDS 0.5069；尚未通过 scaler 机制和多 seed 门禁 |
+| dev 起点验证 | Python compileall 通过；pytest 分组运行 `60 + 71 + 2 = 133 passed`；一次性全套运行存在设备层等待，尚需单独排查 |
 
-```text
-指定 Git commit/tag 下的代码与 resolved_config.yaml
-  > EXPERIMENT_LEDGER 中该次运行的事实记录
-  > CURRENT_BASELINE 当前摘要
-  > DESIGN_LOG 的设计说明
+当前 `dev` 起点保存了 B 系列实现、配置、测试和四份协作文档。新的代码 idea 从该提交切短期分支；正式运行仍需额外创建 experiment tag。
+
+## 当前 dev 默认设置
+
+| 项目 | 设置 |
+| --- | --- |
+| 学生 | `camera_bevdepth_r50`；图像 256×704；5 timestamps；输出 150 channels/frame |
+| 时序 | current + `[-2,-4,-6,-8]` |
+| Feature KD 通道 | `legacy_half`；L0/L1 前半通道进入 adaptor；检测仍使用完整通道 |
+| 教师 | frozen CenterPoint；10-sweep checkpoint；`eval`；不参与梯度 |
+| 教师 LiDAR | current 1 + past 5 + future 4；未来帧仅用于离线训练 |
+| Feature loss | raw Gaussian union mask；overlap `max`；每层除以最终 `mask.sum()`；channel error 使用 sum |
+| Response KD | heatmap：teacher heatmap × GT heatmap + GaussianFocalLoss；bbox scope 由配置控制 |
+| Loss 权重 | detection/depth/feature/response = `1.0/1.0/0.6/1.0` |
+| 训练规模 | 16 GPU × 16 samples/GPU；global batch 256；24 epochs；FP16 |
+| Optimizer | AdamW；LR `4e-4`；backbone LR multiplier `1.0`；weight decay `0.01` |
+| Scheduler | 200-step linear warmup；MultiStepLR `[19,23]`；gamma `0.1` |
+| DDP backend | `gloo` |
+| EMA | enabled；每 epoch 保存 `.pth`，但当前正式评测尚未使用 EMA |
+| Dataset sampling | `use_cbgs=false`；源码 DataLoader 为 `shuffle=false, sampler=None`；Lightning DDP 可能自动注入 sampler，实际行为尚未落日志 |
+| Fit validation | `limit_val_batches=0`；训练结束后独立执行 evaluation |
+
+## 训练命令
+
+在仓库根目录执行。由 Lightning 创建 DDP 进程，不要在外层再套 `torchrun`。
+
+### B0
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 \
+python tools/train.py \
+  --config configs/experiments/b0_full_gt_uniform_no_scale.yaml
 ```
 
-文档描述不能替代可执行配置。每次正式运行都应保存 `resolved_config.yaml`、环境快照、Git SHA、教师 checkpoint SHA256 和数据清单。
+### B1
 
-## Git 与实验工作流
-
-- `main`：始终保持可运行，保存当前代码主线。
-- `codex/<feature>`：只用于短期代码或网络改动；通过测试和 review 后合并并删除。
-- `configs/experiments/*.yaml`：配置级消融的身份，不为 B0/B1/B1T/B2 建长期分支。
-- `exp/YYYYMMDD-<experiment>-s<seed>`：正式运行 tag，指向运行所用提交。
-- checkpoint、日志和数据放在对象存储/NAS；Git 只保存哈希、路径、指标和结论。
-
-标准流程：
-
-```text
-Issue/假设
-  → feature branch（仅代码变化时）
-  → PR + tests + DESIGN_LOG
-  → merge main
-  → 固化 experiment YAML + Git tag
-  → 运行并登记 EXPERIMENT_LEDGER
-  → 结果被采纳后更新 CURRENT_BASELINE
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 \
+python tools/train.py \
+  --config configs/experiments/b1_teacher_value_no_scale.yaml
 ```
 
-## 更新规则
+### B1T
 
-### CURRENT_BASELINE
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 \
+python tools/train.py \
+  --config configs/experiments/b1t_teacher_value_elliptical_mask.yaml
+```
 
-- 必须给出 baseline ID、配置路径、Git SHA/tag、教师与数据版本。
-- 只描述当前采用的系统，不追加流水账。
-- 未跑完或不可比较的实验不能成为 baseline。
+### B2
 
-### DESIGN_LOG
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 \
+python tools/train.py \
+  --config configs/experiments/b2_teacher_value_adaptive_scale.yaml
+```
 
-- 使用 `DNNN` 编号；已有条目不删除。
-- 状态仅使用 `Proposed`、`Implemented`、`Validated`、`Rejected`、`Superseded`。
-- 设计分支即使被删除，决策条目仍保留并链接相关 commit/实验。
+如需改变 GPU 或 batch，使用显式覆盖，并把 resolved global batch/LR 写入实验台账：
 
-### EXPERIMENT_LEDGER
+```bash
+python tools/train.py \
+  --config configs/experiments/b1_teacher_value_no_scale.yaml \
+  runtime.gpus=8 \
+  runtime.batch_size_per_device=8
+```
 
-- 使用唯一 run ID；建议 `<实验>-<日期>-s<seed>`。
-- 提交运行记录后原则上只追加勘误，不覆盖旧指标。
-- 至少填写：父 baseline、唯一变化、config、Git SHA/tag、seed、数据/教师哈希、硬件、状态、指标、产物路径和结论。
-- 不满足可比条件的结果必须标为 `Historical` 或 `Invalid`，禁止混入当前横向对比。
+## 评测命令
 
-## 文档范围
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+python tools/evaluate.py \
+  --checkpoint /absolute/path/to/last.ckpt \
+  --output-dir outputs/evaluation/<run_name>_val_2x16 \
+  runtime.gpus=2 \
+  runtime.batch_size_per_device=16
+```
 
-- 当前版本只维护本索引和上述三份核心文档。
-- 旧方案、旧训练命令和原始历史表格已从当前树删除；需要追溯时使用 Git 历史，例如整理前快照 `d27eed6`。
-- 配置字段的真实行为由 schema、validation、builder 与 `tests/` 中的合同测试共同定义，不另设容易过期的说明文档。
+评测完成后把 `metrics_summary.json` 和 `metrics_details.json` 的结果写入 `VAL_RESULTS.md` 和 `EXPERIMENT_LEDGER.md`。
+
+## 运行目录
+
+新训练自动产生 `YYYYMMDD_HHMMSS` run_id：
+
+```text
+outputs/<experiment>_<run_id>/
+/mnt/nas_data/guqiupeng/checkpoint_nes/<experiment>_<run_id>/
+```
+
+续训使用原 run_id，不创建新的实验身份。正式运行必须记录 output、checkpoint、evaluation 三个目录。
+
+## Git 工作流
+
+| 分支/标识 | 用途 |
+| --- | --- |
+| `main` | 已验证、可以稳定复现的版本 |
+| `dev` | 日常集成分支和所有新 idea 的起点 |
+| `codex/<idea>` | 算法或代码变化的短期分支 |
+| `configs/experiments/*.yaml` | 同一代码实现上的配置消融 |
+| `exp/YYYYMMDD-<experiment>-s<seed>` | 正式运行 tag，指向干净提交 |
+
+建议流程：
+
+```text
+在 IDEA_LOG 写问题和成功标准
+→ 从 dev 切 codex/<idea>
+→ 实现、测试、固定 batch 数值检查
+→ 合回 dev
+→ 固化 YAML 和 experiment tag
+→ 训练并更新实验结果/详细记录
+→ 多 seed 和机制证据充分后合入 main
+```
+
+当前 working tree 已作为 `dev` 起点固化。不要为 B0/B1/B1T/B2 各建长期分支；只有代码行为不同才需要分支，运行身份用 YAML + tag 管理。

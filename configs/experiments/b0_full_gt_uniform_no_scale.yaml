@@ -12,5 +12,8 @@ region:
     use_teacher_score: false
     unmatched_value: 1.0
 
+loss:
+  response_bbox_scope: all_gt
+
 runtime:
   output_dir: outputs/b0_full_gt_uniform_no_scale

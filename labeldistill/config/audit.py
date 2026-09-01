@@ -24,16 +24,22 @@ _J4_CRITICAL_SOURCES = (
     "labeldistill/builders/experiment_builder.py",
     "labeldistill/builders/trainer_builder.py",
     "labeldistill/experiments/j4.py",
+    "labeldistill/datasets/nusc_det_dataset_lidar.py",
     "labeldistill/models/lidardistill.py",
     "labeldistill/models/teacher_proposal_decoder.py",
+    "labeldistill/layers/heads/kd_head.py",
     "labeldistill/refine_head/target_assigner/roi_distill.py",
     "labeldistill/refine_head/target_assigner/adaptive_gt_scaler_v3.py",
     "labeldistill/refine_head/target_assigner/quality_aware_mask_v3.py",
-    "labeldistill/refine_head/target_assigner/per_gt_feature_loss.py",
+    "labeldistill/refine_head/target_assigner/raw_gaussian_feature_loss.py",
     "labeldistill/config/schema.py",
     "labeldistill/config/loader.py",
     "labeldistill/config/checkpoint.py",
+    "labeldistill/config/run.py",
     "labeldistill/config/validation.py",
+    "labeldistill/callbacks/ema.py",
+    "tools/train.py",
+    "tools/evaluate.py",
 )
 
 

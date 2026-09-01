@@ -1,5 +1,7 @@
 from copy import deepcopy
+from types import SimpleNamespace
 
+import pytest
 import torch
 
 from labeldistill.builders import build_experiment
@@ -11,7 +13,11 @@ from labeldistill.models.distill_outputs import (
     StudentOutput,
     TeacherOutput,
 )
-from labeldistill.layers.heads.kd_head import _align_gt_values_to_tasks
+from labeldistill.experiments.j4 import _select_response_bbox_masks
+from labeldistill.layers.heads.kd_head import (
+    _align_gt_values_to_tasks,
+    _labeldistill_heatmap_response_loss,
+)
 
 
 def test_base_experiment_can_skip_model_build_and_owns_config_copies(
@@ -84,6 +90,39 @@ def test_response_valid_masks_follow_centerhead_task_and_class_order():
     # construction_vehicle entries, preserving order within each class.
     assert aligned[1][0, :3].tolist() == [0.0, 1.0, 1.0]
     assert aligned[5][0, :1].tolist() == [1.0]
+
+
+def test_response_bbox_scope_keeps_b0_all_gt_and_b1_matched_only():
+    matched = [torch.tensor([True, False])]
+    result = SimpleNamespace(matched_mask=matched)
+
+    assert _select_response_bbox_masks('all_gt', result) is None
+    assert _select_response_bbox_masks('matched_gt', result) is matched
+    with pytest.raises(ValueError, match='Unsupported response bbox scope'):
+        _select_response_bbox_masks('unknown', result)
+
+
+def test_response_heatmap_kd_matches_official_labeldistill_target():
+    captured = {}
+
+    def loss_cls(prediction, target, *, avg_factor):
+        captured['prediction'] = prediction
+        captured['target'] = target
+        captured['avg_factor'] = avg_factor
+        return target.sum()
+
+    student = torch.tensor([[[[0.2, 0.8]]]], dtype=torch.float16)
+    teacher = torch.tensor([[[[0.9, 0.4]]]], dtype=torch.float16)
+    gt_heatmap = torch.tensor([[[[1.0, 0.25]]]])
+
+    loss = _labeldistill_heatmap_response_loss(
+        loss_cls, student, teacher, gt_heatmap, avg_factor=3.0)
+
+    assert captured['prediction'].dtype == torch.float32
+    assert torch.allclose(
+        captured['target'], teacher.float() * gt_heatmap)
+    assert captured['avg_factor'] == pytest.approx(3.0)
+    assert loss == pytest.approx(1.0, abs=5e-4)
 
 
 def test_j4_builder_builds_only_the_final_structured_model(monkeypatch):

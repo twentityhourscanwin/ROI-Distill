@@ -102,6 +102,12 @@ def validate_config(
         "runtime.gradient_clip_val must be non-negative",
         errors,
     )
+    if config.runtime.run_id is not None:
+        _require(
+            re.fullmatch(r"\d{8}_\d{6}", config.runtime.run_id) is not None,
+            "runtime.run_id must use YYYYMMDD_HHMMSS",
+            errors,
+        )
     _require(config.checkpoint.save_top_k >= -1, "checkpoint.save_top_k must be >= -1", errors)
     _require(
         Path(config.checkpoint.root_dir).expanduser().is_absolute(),
@@ -162,9 +168,9 @@ def validate_config(
             config.region.mask.overlap_merge,
             {"max", "sum"},
         ),
-        "loss.feature_roi_reduction": (
-            config.loss.feature_roi_reduction,
-            {"union_mask_mass", "per_gt_fixed_count"},
+        "loss.response_bbox_scope": (
+            config.loss.response_bbox_scope,
+            {"all_gt", "matched_gt"},
         ),
         "optimizer.type": (config.optimizer.type, {"AdamW"}),
         "scheduler.type": (
@@ -342,6 +348,12 @@ def validate_config(
                 "and unmatched_value=0",
                 errors,
             )
+            _require(
+                config.loss.response_bbox_scope == "matched_gt",
+                "teacher-value experiments require "
+                "loss.response_bbox_scope=matched_gt",
+                errors,
+            )
         elif config.region.value.type == "uniform_gt":
             _require(
                 not config.region.value.use_teacher_score
@@ -355,6 +367,11 @@ def validate_config(
                 "uniform-GT B0 requires region.scaler.enabled=false",
                 errors,
             )
+            _require(
+                config.loss.response_bbox_scope == "all_gt",
+                "uniform-GT B0 requires loss.response_bbox_scope=all_gt",
+                errors,
+            )
         else:
             _require(
                 False,
@@ -366,16 +383,10 @@ def validate_config(
             config.region.mask.type in {
                 "per_gt_gaussian", "per_gt_elliptical_gaussian"
             }
-            and config.region.mask.normalize_per_instance
+            and not config.region.mask.normalize_per_instance
             and config.region.mask.overlap_merge == "max",
-            "center-value baseline requires normalized per-GT Gaussian masks "
+            "center-value baseline requires raw per-GT Gaussian masks "
             "with max overlap",
-            errors,
-        )
-        _require(
-            config.loss.feature_roi_reduction == "per_gt_fixed_count",
-            "center-value baseline requires feature_roi_reduction="
-            "per_gt_fixed_count",
             errors,
         )
 
@@ -448,22 +459,28 @@ def validate_config(
             "MultiStepLR milestones must be a non-empty sorted positive list",
             errors,
         )
+        _require(
+            0 < config.scheduler.gamma <= 1,
+            "scheduler.gamma must be in (0, 1]",
+            errors,
+        )
     elif config.scheduler.type == "LinearWarmupCosine":
-        _require(
-            config.scheduler.warmup_steps >= 0,
-            "scheduler.warmup_steps must be non-negative",
-            errors,
-        )
-        _require(
-            0 < config.scheduler.warmup_ratio <= 1,
-            "scheduler.warmup_ratio must be in (0, 1]",
-            errors,
-        )
         _require(
             0 <= config.scheduler.min_lr_ratio <= 1,
             "scheduler.min_lr_ratio must be in [0, 1]",
             errors,
         )
+
+    _require(
+        config.scheduler.warmup_steps >= 0,
+        "scheduler.warmup_steps must be non-negative",
+        errors,
+    )
+    _require(
+        0 < config.scheduler.warmup_ratio <= 1,
+        "scheduler.warmup_ratio must be in (0, 1]",
+        errors,
+    )
 
     point_range = list(config.geometry.point_cloud_range)
     voxel_size = list(config.geometry.lidar_voxel_size)

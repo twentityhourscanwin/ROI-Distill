@@ -10,7 +10,8 @@ import pytorch_lightning as pl
 from labeldistill.builders import build_experiment, build_trainer
 from labeldistill.config import (
     checkpoint_config_file,
-    load_and_resolve_config,
+    checkpoint_directory,
+    load_training_bundle,
     save_config_artifacts,
 )
 
@@ -38,14 +39,18 @@ def main():
                 checkpoint_config_file(args.checkpoint))
             if not any(item.startswith('runtime.resume_from=') for item in overrides):
                 overrides.append(f'runtime.resume_from={Path(args.checkpoint).resolve()}')
-        bundle = load_and_resolve_config(
-            source_path, overrides, project_root=str(project_root))
+        bundle = load_training_bundle(source_path, overrides, project_root)
         config = bundle.config
         pl.seed_everything(config.experiment.seed, workers=True)
         # Lightning's subprocess DDP launcher re-enters this module once per rank.
         # Persist shared audit artifacts only from local rank zero.
         if int(os.environ.get('LOCAL_RANK', '0')) == 0:
             save_config_artifacts(bundle)
+            print(f'run_id={config.runtime.run_id}', flush=True)
+            print(f'output_dir={Path(config.runtime.output_dir).resolve()}',
+                  flush=True)
+            print(f'checkpoint_dir={checkpoint_directory(config).resolve()}',
+                  flush=True)
         experiment = build_experiment(bundle)
         trainer = build_trainer(config, experiment)
         trainer.fit(experiment, ckpt_path=config.runtime.resume_from)

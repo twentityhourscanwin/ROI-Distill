@@ -51,12 +51,12 @@ region:
     type: per_gt_gaussian
     gaussian_overlap: 0.1
     min_radius: 2
-    normalize_per_instance: true
+    normalize_per_instance: false
     overlap_merge: max
 
 loss:
   detection_weight: 1.0
   depth_weight: 1.0
-  feature_weight: 1.0
+  feature_weight: 0.6
   response_weight: 1.0
-  feature_roi_reduction: per_gt_fixed_count
+  response_bbox_scope: matched_gt

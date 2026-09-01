@@ -155,7 +155,7 @@ class LabelDistillModel(BaseLabelDistillModel):
                  norm_bbox=True),
         )
         #############################################################################################
-        lidar_ckpt_path = '/mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL/outputs/train_teacher_centerpoint/checkpoints/step_step=50200.ckpt'
+        lidar_ckpt_path = '/mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL/ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth'
         #############################################################################################
 
         self.model = LabelDistill(self.backbone_conf,

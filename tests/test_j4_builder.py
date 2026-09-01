@@ -7,7 +7,10 @@ from omegaconf import OmegaConf
 from labeldistill.builders import build_experiment
 from labeldistill.builders import trainer_builder
 from labeldistill.config import load_and_resolve_config
-from labeldistill.experiments.j4 import J4Experiment
+from labeldistill.experiments.j4 import (
+    J4Experiment,
+    _linear_warmup_multistep_lambda,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -43,8 +46,7 @@ def test_builder_wires_every_j4_policy_without_legacy_entry():
     assert model_kwargs['structured_output'] is True
     backbone, head, teacher, checkpoint = captured['model_args']
     assert checkpoint.endswith(
-        'ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_'
-        'cyclic_20e_nus_20220810_030004-9061688e.pth')
+        'ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth')
     assert backbone['output_channels'] == 150
     assert head['bev_backbone_conf']['in_channels'] == 750
     assert teacher['voxel_layer']['point_cloud_range'] == list(
@@ -65,7 +67,7 @@ def test_builder_wires_every_j4_policy_without_legacy_entry():
     assert mask.min_radius == 2
 
 
-def test_builder_wires_center_value_matcher_and_per_gt_reducer():
+def test_builder_wires_center_value_matcher_and_raw_union_reducer():
     bundle = load_and_resolve_config(
         PROJECT_ROOT / 'configs/experiments/b1_teacher_value_no_scale.yaml',
         project_root=PROJECT_ROOT,
@@ -107,8 +109,25 @@ def test_gradient_accumulation_is_part_of_effective_batch_and_lr():
         project_root=PROJECT_ROOT,
         require_checkpoint=False,
     )
-    assert bundle.config.derived.global_batch_size == 64
-    assert bundle.config.derived.effective_learning_rate == pytest.approx(4e-4)
+    assert bundle.config.derived.global_batch_size == 512
+    assert bundle.config.derived.effective_learning_rate == pytest.approx(8e-4)
+
+
+def test_linear_warmup_multistep_schedule_uses_steps_then_epoch_boundaries():
+    factor = lambda step: _linear_warmup_multistep_lambda(
+        step,
+        warmup_steps=200,
+        warmup_ratio=0.001,
+        steps_per_epoch=100,
+        milestones=[19, 23],
+        gamma=0.1,
+    )
+    assert factor(0) == pytest.approx(0.001)
+    assert factor(100) == pytest.approx(0.5005)
+    assert factor(200) == pytest.approx(1.0)
+    assert factor(1899) == pytest.approx(1.0)
+    assert factor(1900) == pytest.approx(0.1)
+    assert factor(2300) == pytest.approx(0.01)
 
 
 def test_trainer_builder_consumes_runtime_policy(monkeypatch):
@@ -141,6 +160,31 @@ def test_trainer_builder_consumes_runtime_policy(monkeypatch):
     assert kwargs['callbacks'][0][0] == 'checkpoint'
     assert kwargs['callbacks'][0][1]['dirpath'] == (
         '/mnt/nas_data/guqiupeng/checkpoint_nes/j4_wl05_wh07')
+
+
+def test_trainer_builder_appends_run_id_to_checkpoint_directory(monkeypatch):
+    bundle = load_and_resolve_config(
+        PROJECT_ROOT / 'configs/experiments/b1_teacher_value_no_scale.yaml',
+        ['runtime.gpus=1', 'runtime.run_id="20260828_153012"',
+         'ema.enabled=false'],
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+    captured = {}
+
+    class DummyTrainer:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(trainer_builder.pl, 'Trainer', DummyTrainer)
+    monkeypatch.setattr(
+        trainer_builder, 'ModelCheckpoint',
+        lambda **kwargs: ('checkpoint', kwargs))
+    trainer_builder.build_trainer(bundle.config, object())
+
+    assert captured['callbacks'][0][1]['dirpath'] == (
+        '/mnt/nas_data/guqiupeng/checkpoint_nes/'
+        'b1_teacher_value_no_scale_20260828_153012')
 
 
 def test_trainer_builder_evaluation_disables_training_callbacks(monkeypatch):

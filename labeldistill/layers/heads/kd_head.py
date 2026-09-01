@@ -2,7 +2,6 @@
 import numba
 import numpy as np
 import torch
-import torch.nn.functional as F
 from mmdet3d.models.utils.gaussian import draw_heatmap_gaussian, gaussian_radius
 import mmdet.models.losses  # noqa: F401  触发 GaussianFocalLoss 等损失函数注册到共享 registry
 from mmdet3d.models.dense_heads.centerpoint_head import CenterHead, circle_nms
@@ -50,6 +49,16 @@ def _align_gt_values_to_tasks(gt_labels, gt_values, class_names,
         aligned_tasks.append(torch.stack(task_samples))
         class_offset += len(task_classes)
     return aligned_tasks
+
+
+def _labeldistill_heatmap_response_loss(
+        loss_cls, student_heatmap, teacher_heatmap, gt_heatmap, avg_factor):
+    """Reproduce the official LabelDistill response-heatmap objective."""
+    return loss_cls(
+        student_heatmap.float(),
+        teacher_heatmap.float() * gt_heatmap,
+        avg_factor=avg_factor,
+    )
 
 
 bev_backbone_conf = dict(
@@ -546,12 +555,16 @@ class KDHead(CenterHead):
                                          heatmaps[task_id],
                                          avg_factor=cls_avg_factor)
 
-            # GaussianFocalLoss treats only target == 1 as positive.  A soft
-            # target such as teacher_prob * gt_heatmap is always below one and
-            # therefore silently removes every positive.  MSE is well-defined
-            # for the teacher's soft response and has a bounded scale.
-            loss_heatmap_distill = F.mse_loss(
-                student_heatmap.float(), teacher_heatmap.float())
+            # Keep response heatmap KD numerically identical to the official
+            # LabelDistill implementation: the teacher response is gated by
+            # the GT Gaussian heatmap and consumed by GaussianFocalLoss.
+            loss_heatmap_distill = _labeldistill_heatmap_response_loss(
+                self.loss_cls,
+                student_heatmap,
+                teacher_heatmap,
+                heatmaps[task_id],
+                cls_avg_factor,
+            )
 
             target_box = anno_boxes[task_id]
             # reconstruct the anno_box from multiple reg heads

@@ -53,4 +53,4 @@ loss:
   depth_weight: 1.0
   feature_weight: 0.6
   response_weight: 1.0
-  feature_roi_reduction: union_mask_mass
+  response_bbox_scope: all_gt

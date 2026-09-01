@@ -389,7 +389,9 @@ class NuscDetDataset(Dataset):
         # else:
         #     lidar_idx = np.arange(9)
         # lidar_idx = np.concatenate([np.array([0, ]), lidar_idx])  # make sure always have key index sweep
-        # Index 0 is the key sweep and indices 1..9 are the nine past sweeps.
+        # Index 0 is the key sweep. With the maintained mixed-sweep infos,
+        # indices 1..5 are past sweeps and 6..9 are the first four future
+        # sweeps; the fifth future sweep is intentionally not selected.
         lidar_idx = np.arange(10)
         return lidar_idx
 
@@ -462,9 +464,9 @@ class NuscDetDataset(Dataset):
 
                 sweep_ptss.append(points)
 
-            # Keep the teacher input at exactly ten sweeps. At the beginning
-            # of a scene, missing history is padded with the key sweep, which
-            # matches the intent of mmdet3d's pad_empty_sweeps=True behavior.
+            # Keep the teacher input at exactly ten sweeps. At scene
+            # boundaries, missing past/future context is padded with the key
+            # sweep, matching the intent of pad_empty_sweeps=True.
             if len(sweep_ptss) < 10:
                 key_sweep_points = sweep_ptss[0]
                 for _ in range(10 - len(sweep_ptss)):

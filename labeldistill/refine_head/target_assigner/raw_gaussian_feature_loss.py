@@ -1,4 +1,4 @@
-"""Per-GT fixed-count BEV feature distillation reduction."""
+"""Raw-Gaussian union-mask reduction for GT-guided BEV feature KD."""
 
 import math
 from dataclasses import dataclass
@@ -17,7 +17,7 @@ from labeldistill.refine_head.target_assigner.roi_distill import MatchResult
 
 
 @dataclass(frozen=True)
-class PerGTFeatureLossOutput:
+class RawGaussianFeatureLossOutput:
     loss: torch.Tensor
     level_losses: Tuple[torch.Tensor, ...]
     group_losses: Dict[str, torch.Tensor]
@@ -27,12 +27,12 @@ class PerGTFeatureLossOutput:
     skipped_gt_count: torch.Tensor
 
 
-class PerGTFeatureDistillationLoss(nn.Module):
-    """Average each instance spatially, then reduce q-weighted GT losses.
+class RawGaussianUnionFeatureLoss(nn.Module):
+    """Reduce BEV feature error with q-weighted raw Gaussian union masks.
 
-    A single base-resolution temporary mask is reused one GT at a time. Each
-    feature level is normalized after interpolation, so a 64x64 level does not
-    silently receive one quarter of the mass of the 128x128 level.
+    Every drawable GT produces a peak-one Gaussian at base resolution. Its
+    teacher value ``q`` scales the complete mask, overlapping masks are merged,
+    and every feature level is normalized by its final mask mass.
     """
 
     def __init__(self, *, point_cloud_range, feature_map_size,
@@ -173,13 +173,13 @@ class PerGTFeatureDistillationLoss(nn.Module):
         return current + contribution
 
     @staticmethod
-    def _global_count(local_count):
-        global_count = local_count.detach().clone()
+    def _global_sum(local_value):
+        global_value = local_value.detach().clone()
         world_size = 1
         if dist.is_available() and dist.is_initialized():
             world_size = dist.get_world_size()
-            dist.all_reduce(global_count, op=dist.ReduceOp.SUM)
-        return global_count, world_size
+            dist.all_reduce(global_value, op=dist.ReduceOp.SUM)
+        return global_value, world_size
 
     def forward(self, teacher_features: Sequence[torch.Tensor],
                 student_features: Sequence[torch.Tensor],
@@ -195,10 +195,12 @@ class PerGTFeatureDistillationLoss(nn.Module):
                 or match_result.matched_mask is None
                 or match_result.effective_gt_mask is None):
             raise ValueError(
-                'Per-GT reduction requires continuous-value MatchResult fields')
+                'Raw-Gaussian feature loss requires continuous-value '
+                'MatchResult fields')
 
         error_maps = []
         level_sums = []
+        level_mask_masses = []
         for teacher_feature, student_feature in zip(
                 teacher_features, student_features):
             if teacher_feature.shape != student_feature.shape:
@@ -207,39 +209,41 @@ class PerGTFeatureDistillationLoss(nn.Module):
                     f'teacher={tuple(teacher_feature.shape)}, '
                     f'student={tuple(student_feature.shape)}')
             student_float = student_feature.float()
-            error_maps.append(
-                (teacher_feature.detach().float() - student_float)
-                .square().mean(dim=1))
+            squared_error = (
+                teacher_feature.detach().float() - student_float
+            ).square()
+            error_maps.append(squared_error.sum(dim=1))
             # Graph-connected zero for empty-GT batches on every rank.
             level_sums.append(student_float.sum() * 0.0)
+            level_mask_masses.append(torch.zeros(
+                (), device=student_float.device, dtype=torch.float32))
 
         device = student_features[0].device
         local_effective = torch.zeros((), device=device, dtype=torch.float32)
         local_matched = torch.zeros((), device=device, dtype=torch.float32)
         local_value_sum = torch.zeros((), device=device, dtype=torch.float32)
         local_skipped = torch.zeros((), device=device, dtype=torch.float32)
-        group_counts = {
-            'small': torch.zeros((), device=device, dtype=torch.float32),
-            'large': torch.zeros((), device=device, dtype=torch.float32),
+        group_names = ('small', 'large')
+        group_level_sums = {
+            name: [value * 0.0 for value in level_sums]
+            for name in group_names
         }
-        group_sums = {
-            name: level_sums[0] * 0.0 for name in group_counts
+        group_level_masses = {
+            name: [value * 0.0 for value in level_mask_masses]
+            for name in group_names
         }
 
         for batch_idx, gt_boxes in enumerate(match_result.gt_boxes):
             effective = match_result.effective_gt_mask[batch_idx]
             matched = match_result.matched_mask[batch_idx]
             values = match_result.teacher_values[batch_idx].float()
-            merged_masks = [
-                torch.zeros_like(error_map[batch_idx])
-                for error_map in error_maps
-            ]
-            group_masks = {
-                name: [
-                    torch.zeros_like(error_map[batch_idx])
-                    for error_map in error_maps
-                ]
-                for name in group_counts
+            feat_width, feat_height = self.feature_map_size
+            merged_base_mask = torch.zeros(
+                (feat_height, feat_width), device=device,
+                dtype=torch.float32)
+            group_base_masks = {
+                name: torch.zeros_like(merged_base_mask)
+                for name in group_names
             }
             for gt_idx in torch.nonzero(effective, as_tuple=False).flatten():
                 class_id = int(gt_boxes[gt_idx, -1].item())
@@ -252,56 +256,68 @@ class PerGTFeatureDistillationLoss(nn.Module):
                     local_skipped += 1.0
                     continue
 
-                # Only drawable GTs participate in both the numerator and the
-                # fixed-count denominator.
+                # Only drawable GTs participate in the mask and diagnostics.
                 local_effective += 1.0
-                group_counts[group_name] += 1.0
                 local_matched += matched[gt_idx].float()
                 local_value_sum += value
 
-                for level_idx, error_map in enumerate(error_maps):
-                    target_size = error_map.shape[-2:]
-                    if base_mask.shape != target_size:
-                        level_mask = F.interpolate(
-                            base_mask[None, None], size=target_size,
-                            mode='bilinear', align_corners=False)[0, 0]
-                    else:
-                        level_mask = base_mask
-                    level_mask = level_mask / level_mask.sum().clamp_min(1e-6)
-                    weighted_mask = value * level_mask
-                    merged_masks[level_idx] = self._merge(
-                        merged_masks[level_idx], weighted_mask)
-                    group_masks[group_name][level_idx] = self._merge(
-                        group_masks[group_name][level_idx], weighted_mask)
+                weighted_mask = value * base_mask
+                merged_base_mask = self._merge(
+                    merged_base_mask, weighted_mask)
+                group_base_masks[group_name] = self._merge(
+                    group_base_masks[group_name], weighted_mask)
 
             for level_idx, error_map in enumerate(error_maps):
+                target_size = error_map.shape[-2:]
+                if merged_base_mask.shape != target_size:
+                    level_mask = F.interpolate(
+                        merged_base_mask[None, None], size=target_size,
+                        mode='bilinear', align_corners=True)[0, 0]
+                else:
+                    level_mask = merged_base_mask
+                level_mask_masses[level_idx] = (
+                    level_mask_masses[level_idx] + level_mask.sum())
                 level_sums[level_idx] = level_sums[level_idx] + (
-                    error_map[batch_idx] * merged_masks[level_idx]).sum()
-                for group_name in group_counts:
-                    group_sums[group_name] = group_sums[group_name] + (
-                        error_map[batch_idx]
-                        * group_masks[group_name][level_idx]
-                    ).sum()
+                    error_map[batch_idx] * level_mask).sum()
+                for group_name in group_names:
+                    group_mask = group_base_masks[group_name]
+                    if group_mask.shape != error_map.shape[-2:]:
+                        group_mask = F.interpolate(
+                            group_mask[None, None],
+                            size=error_map.shape[-2:], mode='bilinear',
+                            align_corners=True)[0, 0]
+                    group_level_masses[group_name][level_idx] = (
+                        group_level_masses[group_name][level_idx]
+                        + group_mask.sum())
+                    group_level_sums[group_name][level_idx] = (
+                        group_level_sums[group_name][level_idx]
+                        + (error_map[batch_idx] * group_mask).sum()
+                    )
 
-        global_effective, world_size = self._global_count(local_effective)
-        if global_effective > 0:
-            scale = float(world_size) / global_effective
-            level_losses = tuple(value * scale for value in level_sums)
-        else:
-            level_losses = tuple(value * 0.0 for value in level_sums)
+        level_losses_list = []
+        for level_sum, local_mass in zip(level_sums, level_mask_masses):
+            global_mass, world_size = self._global_sum(local_mass)
+            if global_mass > 0:
+                level_losses_list.append(
+                    level_sum * float(world_size) / global_mass)
+            else:
+                level_losses_list.append(level_sum * 0.0)
+        level_losses = tuple(level_losses_list)
 
         group_losses = {}
         for name in ('small', 'large'):
-            global_group_count, group_world_size = self._global_count(
-                group_counts[name])
-            if global_group_count > 0:
-                group_losses[name] = (
-                    group_sums[name] * float(group_world_size)
-                    / global_group_count)
-            else:
-                group_losses[name] = group_sums[name] * 0.0
+            group_loss = group_level_sums[name][0] * 0.0
+            for level_sum, local_mass in zip(
+                    group_level_sums[name], group_level_masses[name]):
+                global_mass, group_world_size = self._global_sum(local_mass)
+                if global_mass > 0:
+                    group_loss = (
+                        group_loss
+                        + level_sum * float(group_world_size) / global_mass
+                    )
+            group_losses[name] = group_loss
 
-        return PerGTFeatureLossOutput(
+        return RawGaussianFeatureLossOutput(
             loss=sum(level_losses),
             level_losses=level_losses,
             group_losses=group_losses,

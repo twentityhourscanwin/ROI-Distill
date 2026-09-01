@@ -13,8 +13,8 @@ from labeldistill.refine_head.target_assigner.adaptive_gt_scaler_v3 import (
 from labeldistill.refine_head.target_assigner.quality_aware_mask_v3 import (
     QualityAwareMaskGeneratorV3,
 )
-from labeldistill.refine_head.target_assigner.per_gt_feature_loss import (
-    PerGTFeatureDistillationLoss,
+from labeldistill.refine_head.target_assigner.raw_gaussian_feature_loss import (
+    RawGaussianUnionFeatureLoss,
 )
 from labeldistill.refine_head.target_assigner.roi_distill import ProposalTargetLayer
 
@@ -103,8 +103,9 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
             small_class_ids=small_class_ids,
         )
     feature_loss_reducer = None
-    if config.loss.feature_roi_reduction == 'per_gt_fixed_count':
-        feature_loss_reducer = PerGTFeatureDistillationLoss(
+    if config.region.mask.type in {
+            'per_gt_gaussian', 'per_gt_elliptical_gaussian'}:
+        feature_loss_reducer = RawGaussianUnionFeatureLoss(
             point_cloud_range=list(config.geometry.point_cloud_range),
             feature_map_size=list(config.derived.feature_map_size),
             gaussian_overlap=config.region.mask.gaussian_overlap,

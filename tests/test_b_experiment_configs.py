@@ -10,8 +10,7 @@ from labeldistill.config import load_and_resolve_config
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = PROJECT_ROOT / 'configs/experiments'
 TEACHER = (
-    'ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_'
-    'cyclic_20e_nus_20220810_030004-9061688e.pth'
+    'ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth'
 )
 IDENTITY_PATHS = {
     'experiment.name', 'experiment.description', 'runtime.output_dir',
@@ -56,16 +55,25 @@ def test_b0_b1_b2_b1t_are_single_change_relatives_of_b1():
 
     for config in (b0, b1, b2, b1t):
         assert config.teacher.checkpoint == TEACHER
-        assert config.teacher.checkpoint_prefix == ''
-        assert config.data.train_info == (
-            'nuscenes_infos_train_10sweeps_past9.pkl')
-        assert config.data.val_info == (
-            'nuscenes_infos_val_10sweeps_past9.pkl')
+        assert config.teacher.checkpoint_prefix == 'model.centerpoint.'
+        assert config.data.train_info == 'nuscenes_infos_train.pkl'
+        assert config.data.val_info == 'nuscenes_infos_val.pkl'
         assert config.region.mask.overlap_merge == 'max'
-        assert config.loss.feature_weight == 1.0
+        assert config.region.mask.normalize_per_instance is False
+        assert config.loss.feature_weight == 0.6
+        assert config.runtime.gpus == 16
+        assert config.runtime.batch_size_per_device == 16
+        assert config.derived.global_batch_size == 256
+        assert config.derived.effective_learning_rate == 0.0004
+        assert config.optimizer.backbone_lr_mult == 1.0
+        assert config.scheduler.warmup_steps == 200
+        assert config.scheduler.warmup_ratio == 0.001
 
     assert _scientific_diff(b0, b1) == {
+        'loss.response_bbox_scope',
         'region.value.type', 'region.value.unmatched_value'}
+    assert b0.loss.response_bbox_scope == 'all_gt'
+    assert b1.loss.response_bbox_scope == 'matched_gt'
     assert _scientific_diff(b1, b2) == {'region.scaler.enabled'}
     assert _scientific_diff(b1, b1t) == {'region.mask.type'}
 

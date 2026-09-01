@@ -4,7 +4,7 @@ experiment:
   name: b1t_teacher_value_elliptical_mask
   description: >-
     B1 plus an oriented elliptical BEV Gaussian mask. Teacher value, original
-    GT geometry, fixed-count reduction and max-overlap policy remain unchanged.
+    GT geometry, raw-mask mass reduction and max-overlap policy remain unchanged.
 
 region:
   mask:

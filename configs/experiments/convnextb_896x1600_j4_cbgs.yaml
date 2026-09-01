@@ -16,10 +16,11 @@ data:
   split: trainval
   use_cbgs: true
 
-# Preserve the teacher selected by the leaderboard entry. Proposal decoding is
+# Use the project-wide 10-sweep CenterPoint teacher. Proposal decoding is
 # explicit and independent from the student detection head.
 teacher:
-  checkpoint: outputs/train_teacher_centerpoint/checkpoints/step_step=50200.ckpt
+  checkpoint: ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth
+  checkpoint_prefix: "model.centerpoint."
   proposal:
     score_threshold: 0.15
 

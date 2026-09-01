@@ -14,6 +14,32 @@ from labeldistill.datasets.nusc_det_dataset_lidar import NuscDetDataset, collate
 from labeldistill.exps.nuscenes.base_exp import LabelDistillModel as BaseExperiment
 
 
+def _select_response_bbox_masks(scope, match_result):
+    """Select the GT slots used by bbox response KD."""
+    if scope == 'all_gt':
+        return None
+    if scope == 'matched_gt':
+        if match_result is None:
+            raise ValueError(
+                'matched_gt bbox response KD requires a MatchResult')
+        return match_result.matched_mask
+    raise ValueError(f'Unsupported response bbox scope: {scope!r}')
+
+
+def _linear_warmup_multistep_lambda(
+        current_step, *, warmup_steps, warmup_ratio, steps_per_epoch,
+        milestones, gamma):
+    """Return a step-wise LR factor for linear warmup plus epoch milestones."""
+    if warmup_steps and current_step < warmup_steps:
+        alpha = current_step / warmup_steps
+        return warmup_ratio * (1.0 - alpha) + alpha
+    completed_milestones = sum(
+        current_step >= milestone * steps_per_epoch
+        for milestone in milestones
+    )
+    return gamma ** completed_milestones
+
+
 class J4Experiment(BaseExperiment):
     """The shared J4 training loop with all experiment policies injected."""
 
@@ -44,7 +70,6 @@ class J4Experiment(BaseExperiment):
         self.generate_bev_mask = mask_generator
         self.feature_loss_reducer = feature_loss_reducer
         self.feature_mask_type = config.region.mask.type
-        self.feature_roi_reduction = config.loss.feature_roi_reduction
         self.scaler_enabled = bool(config.region.scaler.enabled)
         self.key_idxes = list(config.data.key_idxes)
         self.data_use_cbgs = bool(config.data.use_cbgs)
@@ -58,6 +83,7 @@ class J4Experiment(BaseExperiment):
             'feature': float(config.loss.feature_weight),
             'response': float(config.loss.response_weight),
         }
+        self.response_bbox_scope = str(config.loss.response_bbox_scope)
         self.effective_learning_rate = float(
             config.derived.effective_learning_rate)
         self.optimizer_weight_decay = float(config.optimizer.weight_decay)
@@ -66,6 +92,7 @@ class J4Experiment(BaseExperiment):
         self.scheduler_milestones = list(config.scheduler.milestones)
         self.scheduler_warmup_steps = int(config.scheduler.warmup_steps)
         self.scheduler_warmup_ratio = float(config.scheduler.warmup_ratio)
+        self.scheduler_gamma = float(config.scheduler.gamma)
         self.scheduler_min_lr_ratio = float(config.scheduler.min_lr_ratio)
         self.resolved_config = OmegaConf.to_container(config, resolve=True)
         self.hparams.update({'resolved_config': self.resolved_config})
@@ -129,10 +156,7 @@ class J4Experiment(BaseExperiment):
 
         match_result = None
         bev_roi_mask = None
-        if self.feature_roi_reduction == 'per_gt_fixed_count':
-            if self.feature_loss_reducer is None:
-                raise RuntimeError(
-                    'per_gt_fixed_count requires a feature loss reducer')
+        if self.feature_loss_reducer is not None:
             match_result = self.proposal_target_layer(
                 teacher.proposals, gt_boxes, gt_labels,
                 bda_mats=mats.get('bda_mat'))
@@ -152,15 +176,15 @@ class J4Experiment(BaseExperiment):
             student.raw_preds,
             teacher.raw_preds,
             gt_labels=gt_labels,
-            response_valid_masks=(
-                None if match_result is None else match_result.matched_mask),
+            response_valid_masks=_select_response_bbox_masks(
+                self.response_bbox_scope, match_result),
         )
         if len(depth_labels.shape) == 5:
             depth_labels = depth_labels[:, 0, ...]
         depth_labels = depth_labels.to(student.depth.device)
         depth_loss = self.get_depth_loss(depth_labels, student.depth)
         feature_output = None
-        if self.feature_roi_reduction == 'per_gt_fixed_count':
+        if self.feature_loss_reducer is not None:
             feature_output = self.feature_loss_reducer(
                 teacher.backbone_features,
                 student.distill_features,
@@ -352,7 +376,34 @@ class J4Experiment(BaseExperiment):
         if hasattr(optimizer, 'optimizer'):
             optimizer = optimizer.optimizer
         if self.scheduler_type == 'MultiStepLR':
-            scheduler = MultiStepLR(optimizer, self.scheduler_milestones)
+            if self.scheduler_warmup_steps > 0:
+                total_steps = int(self.trainer.estimated_stepping_batches)
+                steps_per_epoch = max(
+                    1, math.ceil(total_steps / self.config.runtime.max_epochs))
+                scheduler = LambdaLR(
+                    optimizer,
+                    lambda step: _linear_warmup_multistep_lambda(
+                        step,
+                        warmup_steps=self.scheduler_warmup_steps,
+                        warmup_ratio=self.scheduler_warmup_ratio,
+                        steps_per_epoch=steps_per_epoch,
+                        milestones=self.scheduler_milestones,
+                        gamma=self.scheduler_gamma,
+                    ),
+                )
+                return {
+                    'optimizer': optimizer,
+                    'lr_scheduler': {
+                        'scheduler': scheduler,
+                        'interval': 'step',
+                        'frequency': 1,
+                    },
+                }
+            scheduler = MultiStepLR(
+                optimizer,
+                self.scheduler_milestones,
+                gamma=self.scheduler_gamma,
+            )
             return [[optimizer], [scheduler]]
 
         if self.scheduler_type != 'LinearWarmupCosine':

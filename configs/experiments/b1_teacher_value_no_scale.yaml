@@ -13,11 +13,11 @@ experiment:
 
 teacher:
   checkpoint: >-
-    ckpts/centerpoint_01voxel_second_secfpn_circlenms_4x8_cyclic_20e_nus_20220810_030004-9061688e.pth
-  checkpoint_prefix: ""
+    ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth
+  checkpoint_prefix: "model.centerpoint."
 
 runtime:
-  gpus: 2
+  gpus: 16
   num_nodes: 1
   distributed_backend: gloo
   batch_size_per_device: 16
@@ -39,10 +39,14 @@ checkpoint:
 
 optimizer:
   type: AdamW
-  base_lr_at_global_batch_64: 0.0004
+  # The standard 16x16 run has global batch 256 and resolves to lr=4e-4.
+  base_lr_at_global_batch_64: 0.0001
   weight_decay: 0.01
-  backbone_lr_mult: 0.5
+  backbone_lr_mult: 1.0
 
 scheduler:
   type: MultiStepLR
   milestones: [19, 23]
+  warmup_steps: 200
+  warmup_ratio: 0.001
+  gamma: 0.1

@@ -1,74 +1,89 @@
-# 实验台账
+# 实验详细记录
 
-本文件是实验运行与结论的唯一登记表。每次正式运行使用唯一 ID；失败、中止和无效结果同样保留。表格中的 `—` 表示尚未产生有效结果，不表示 0。
+本文件保存每个实验的完整上下文。快速比较只看 [VAL_RESULTS.md](VAL_RESULTS.md)；这里用于复现、排查和判断结论是否有效。
 
-## 1. 当前 B 系列
+## 共同实验口径
 
-共同实现快照：`d27eed6`
+| 项目 | 设置 |
+| --- | --- |
+| 学生 | BEVDepth R50；6 cameras × 5 timestamps；检测使用完整 750 channels；feature KD 使用 `legacy_half` |
+| 教师 | frozen CenterPoint：`ckpts/centerpoint_vox01_128x128_20e_10sweeps.pth` |
+| 教师 SHA256 | `850d60f7a3894000153e9479e3d67869d55f74ae94aa73abc945a7f5cdd72ddb` |
+| 教师输入 | current 1 + past 5 + future 4，共 10 sweeps；仅用于离线训练 |
+| train info | `nuscenes_infos_train.pkl`；SHA256 `4f38ffbf47c3225bab1ae4b42be81700475887e766db97cd675ad39eba2ad8b1` |
+| val info | `nuscenes_infos_val.pkl`；SHA256 `eb2b63510e2709e0d18bd4a478af0e92f10820c0c7eee6fae618448362aec36f` |
+| Loss 权重 | detection/depth/feature/response = `1.0/1.0/0.6/1.0` |
+| Optimizer | AdamW；global batch 256 时 LR `4e-4`；weight decay `0.01`；backbone multiplier `1.0` |
+| Scheduler | linear warmup 200 steps，ratio `0.001`；MultiStepLR `[19,23]`，gamma `0.1` |
+| Runtime | 16 GPU × 16 samples/GPU；24 epochs；FP16；gradient clip 35；seed 0 |
+| 评测 | nuScenes val 6019 samples；2 GPU × 16；普通 `last.ckpt` |
+| 代码状态 | Git HEAD `f5f1400`，但运行使用未提交 working tree；没有正式实验 tag |
 
-共同 teacher SHA256：`9061688e5f81adae87d28241143e2d33075f68908134264f0de8c901acf911d8`
+## B0 — Full-GT uniform
 
-共同数据：`nuscenes_infos_{train,val}_10sweeps_past9.pkl`
+| 字段 | 内容 |
+| --- | --- |
+| 实验信息 | run_id `20260829_221359`；分支 `main`（dirty）；commit `f5f1400`；config `configs/experiments/b0_full_gt_uniform_no_scale.yaml`；seed 0 |
+| Changelog | 基于 B1；`region.value=uniform_gt`，所有 effective GT 使用 `q=1`；bbox response 从 `matched_gt` 改为 `all_gt`；circular Gaussian；union-mask-mass 归一化；16 GPU × 16 |
+| Output | train `outputs/b0_full_gt_uniform_no_scale_20260829_221359`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b0_full_gt_uniform_no_scale_20260829_221359/last.ckpt`；eval `outputs/evaluation/b0_20260829_221359_val_2x16` |
+| 效果 | mAP 0.3919；NDS 0.5039；mATE 0.6144；mASE 0.2629；mAOE 0.4329；mAVE 0.3917；mAAE 0.2186 |
+| 结论 | mAP 高于 B1，但 B0/B1 同时改变 feature value/gate 和 bbox response gate，不能解释为 teacher value 的单变量收益。 |
+| 有效性 | 可作为当前口径的 seed 0 结果；需要 `uniform feature + matched-only bbox response` 桥接实验。 |
 
-| Run ID | 实验 | 唯一变化 | Config | Seed | 状态 | mAP | NDS | 产物 | 结论 |
-| --- | --- | --- | --- | ---: | --- | ---: | ---: | --- | --- |
-| `B0-20260826-s0` | B0 | 相对 B1 使用 uniform `q=1` | `configs/experiments/b0_full_gt_uniform_no_scale.yaml` | 0 | Planned | — | — | — | 待训练 |
-| `B1-20260826-s0` | B1 | 当前候选 baseline | `configs/experiments/b1_teacher_value_no_scale.yaml` | 0 | Planned | — | — | — | 待训练 |
-| `B1T-20260826-s0` | B1T | 仅改椭圆 Gaussian | `configs/experiments/b1t_teacher_value_elliptical_mask.yaml` | 0 | Planned | — | — | — | 待训练 |
-| `B2-20260826-s0` | B2 | 仅启用 AdaptiveGTScalerV3 | `configs/experiments/b2_teacher_value_adaptive_scale.yaml` | 0 | Blocked | — | — | — | 先处理 mask 不变率与 deadzone 问题 |
+## B1 — Teacher-value reference
 
-正式启动时应把 `Planned` 改成 `Running`，补充 Git tag、硬件和 `outputs/...`/对象存储路径；完成独立 evaluation 后再填写指标和结论。若改变 seed 或代码，新增行，不覆盖原 run。
+| 字段 | 内容 |
+| --- | --- |
+| 实验信息 | run_id `20260829_225349`；分支 `main`（dirty）；commit `f5f1400`；config `configs/experiments/b1_teacher_value_no_scale.yaml`；seed 0 |
+| Changelog | 当前参考；exact-class、score-first、一对一匹配；`q=max(0,1-(d/tau)^2)`；circular Gaussian；union-mask-mass 归一化；bbox response `matched_gt`；16 GPU × 16 |
+| Output | train `outputs/b1_teacher_value_no_scale_20260829_225349`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b1_teacher_value_no_scale_20260829_225349/last.ckpt`；eval `outputs/evaluation/b1_20260829_225349_val_2x16` |
+| 效果 | mAP 0.3881；NDS 0.5047；mATE 0.6144；mASE 0.2635；mAOE 0.4143；mAVE 0.3825；mAAE 0.2192 |
+| 训练观察 | TensorBoard 采样点中的 feature matched rate 约 0.953；teacher value mean 约 0.880。 |
+| 结论 | 作为后续 idea 的固定参考；当前没有证据证明 teacher-value 优于 uniform GT。 |
+| 有效性 | 只有 seed 0；需要桥接组和重复 seed。 |
 
-## 2. 历史结果（不可与当前 B 系列直接比较）
+## B1T — Oriented elliptical mask
 
-以下结果来自旧网络、旧教师/数据或不同帧数与损失口径，状态统一为 `Historical / Invalid for current comparison`。这里保留必要摘要；更完整的原始表格可从整理前 Git 快照 `d27eed6` 追溯。
+| 字段 | 内容 |
+| --- | --- |
+| 实验信息 | run_id `20260830_104035`；分支 `main`（dirty）；commit `f5f1400`；config `configs/experiments/b1t_teacher_value_elliptical_mask.yaml`；seed 0 |
+| Changelog | 基于 B1；唯一配置变化为 `per_gt_gaussian → per_gt_elliptical_gaussian`；其余 matching、q、归一化、batch 和训练参数保持一致。 |
+| Output | train `outputs/b1t_teacher_value_elliptical_mask_20260830_104035`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b1t_teacher_value_elliptical_mask_20260830_104035/last.ckpt`；eval `outputs/evaluation/b1t_20260830_104035_val_2x16` |
+| 效果 | mAP 0.3891；NDS 0.5037；mATE 0.6075；mASE 0.2648；mAOE 0.4299；mAVE 0.3915；mAAE 0.2145 |
+| 结论 | mATE、mAAE 改善，但 mAP/NDS 没有超过 B1；当前不继续把 ellipse 作为默认 mask。 |
+| 有效性 | B1/B1T resolved config 除实验身份、目录和 mask type 外一致；只有 seed 0。 |
 
-### 旧模块消融
+## B2 — AdaptiveGTScalerV3
 
-| Run | 旧设计 | mAP | NDS | 有效性说明 |
-| --- | --- | ---: | ---: | --- |
-| A0 | full-channel GT-guided | 0.3767 | 0.4982 | 旧双帧/后修改为五帧，需重训 |
-| A1 | channel split | 0.3737 | 0.4946 | 同上 |
-| A2 | channel split + ROI | 0.3741 | 0.4942 | 同上 |
-| A3 | channel split + ROI + scaling | 0.3767 | 0.4974 | 同上 |
-| A4 | full-channel + ROI | 0.3700 | 0.4907 | 同上 |
-| A5 | full-channel + ROI + scaling | 0.3742 | 0.4971 | 同上 |
+| 字段 | 内容 |
+| --- | --- |
+| 实验信息 | run_id `20260830_104032`；分支 `main`（dirty）；commit `f5f1400`；config `configs/experiments/b2_teacher_value_adaptive_scale.yaml`；seed 0 |
+| Changelog | 基于 B1；唯一配置变化为 `region.scaler.enabled=false → true`；matching、q、circular Gaussian、union-mask-mass 归一化和训练参数保持一致。 |
+| Output | train `outputs/b2_teacher_value_adaptive_scale_20260830_104032`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b2_teacher_value_adaptive_scale_20260830_104032/last.ckpt`；eval `outputs/evaluation/b2_20260830_104032_val_2x16` |
+| 效果 | mAP 0.3922；NDS 0.5069；mATE 0.6066；mASE 0.2604；mAOE 0.4268；mAVE 0.3762；mAAE 0.2224 |
+| 结论 | 当前 seed 0 最优；收益主要体现在位置、尺度和速度指标，方向与属性没有同步改善。 |
+| 有效性 | scaler 存在正负 deadzone 不对称；未记录 mask changed rate、center-cell change rate 和几何分桶统计；修复和多 seed 前不能成为正式 baseline。 |
 
-### 旧参数消融
+## 共同审计缺口
 
-| Run | 参数摘要 | mAP | NDS | 有效性说明 |
-| --- | --- | ---: | ---: | --- |
-| J2 | `w_l=0.3,w_h=0.65` | 0.4004 | 0.5125 | legacy J-series |
-| J3 | `w_l=0.35,w_h=0.75` | 0.4009 | 0.5105 | legacy J-series |
-| J4 | `w_l=0.5,w_h=0.7` | 0.4033 | 0.5160 | legacy J-series |
-| J5 | `w_l=0.3,w_h=0.8` | 0.3981 | 0.5139 | legacy J-series |
-| P3-020 | `feature_weight=0.2` | 0.3934 | 0.5092 | legacy parameter sweep |
-| P3-040 | `feature_weight=0.4` | 0.4013 | 0.5137 | legacy parameter sweep |
-| P3-050 | `feature_weight=0.5` | 0.3996 | 0.5124 | legacy parameter sweep |
-| P3-070 | `feature_weight=0.7` | 0.3948 | 0.5109 | legacy parameter sweep |
-| P3-080 | `feature_weight=0.8` | 0.3983 | 0.5140 | legacy parameter sweep |
-| P3-100 | `feature_weight=1.0` | 0.3951 | 0.5084 | legacy parameter sweep |
+| 问题 | 影响 | 下一步 |
+| --- | --- | --- |
+| 运行代码未提交 | `f5f1400` 不能直接还原实际 working tree | 固化当前状态为 `dev` 起点 commit |
+| 源码审计列表不完整 | 未记录 `kd_head.py`、LiDAR dataset 等关键源码哈希 | 补齐 audit source list |
+| 数据哈希未写入 resolved config | 文档有哈希，但运行配置没有机器可读证据 | 把 train/val info SHA256 加入 derived config |
+| EMA 未参与评测 | 保存约 24 份 EMA 权重，但指标来自普通 `last.ckpt` | 做一次 EMA/last 对照后决定保留或关闭 |
+| sampler 行为未记录 | DDP 可能自动替换 sampler，实际顺序无法从产物确认 | 显式配置并打印实际 sampler |
+| 只有 seed 0 | 千分位差异可能来自方差 | 对关键组补 seed 1/2 |
 
-## 3. 新增运行模板
+## 新实验记录模板
 
-追加新运行时复制以下字段：
-
-```text
-Run ID:
-Hypothesis:
-Parent baseline:
-Single intended change:
-Config:
-Git SHA / tag:
-Teacher checkpoint + SHA256:
-Dataset info + hash:
-Seed:
-Hardware / global batch / precision:
-Status: Planned | Running | Completed | Failed | Invalid | Historical
-Metrics: mAP, NDS, mATE, mASE, mAOE, mAVE, mAAE
-Artifacts:
-Conclusion:
-Validity notes:
-```
-
-对于 B2 额外记录 `mask_changed_rate`；对于通道分割实验额外记录两半通道遮蔽/互换的性能变化。
+| 字段 | 内容 |
+| --- | --- |
+| 实验信息 | run_id；分支；commit/tag；config；seed |
+| Changelog | 基于哪个 baseline；唯一修改变量；mask/归一化；batch size；GPU number |
+| Input | teacher checkpoint + hash；train/val info + hash；sweep 组成 |
+| Train | optimizer；各参数组 LR；scheduler；precision；gradient clip；epochs |
+| Output | train log；checkpoint；evaluation 目录；metrics JSON |
+| 效果 | mAP、NDS、mATE、mASE、mAOE、mAVE、mAAE |
+| 结论 | 是否支持假设；观察到的副作用 |
+| 有效性 | tests；多 seed；机制统计；已知混杂 |
