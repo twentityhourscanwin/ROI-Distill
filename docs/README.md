@@ -9,6 +9,7 @@
 | [VAL_RESULTS.md](VAL_RESULTS.md) | 简洁查看当前实验结果 |
 | [EXPERIMENT_LEDGER.md](EXPERIMENT_LEDGER.md) | 查看单次实验的完整配置、产物和有效性 |
 | [IDEA_LOG.md](IDEA_LOG.md) | 根据结果分析问题并规划下一轮 idea |
+| [BRANCH_LEDGER.md](BRANCH_LEDGER.md) | 记录 dev 与各开发分支的分叉点、commit、影响范围和状态 |
 | [README.md](README.md) | 通用训练命令、当前 dev 设置和 Git 规则 |
 
 ## 当前开发状态
