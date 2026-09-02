@@ -81,22 +81,22 @@ union-mask-mass 归一化还会让单个孤立 ROI 的整体 q 在分子和分�
 
 用户指出的漏洞成立，但规模需要准确描述：P0 不是普遍错配，约 95% 的已选匹配仍是最近 proposal；真正的问题是 score-first assignment 与 distance-only q 的优化目标不一致，并在密集的小目标场景产生可避免冲突。
 
-“逐 GT 找最近 proposal”若允许 proposal reuse，coverage 最高，但会把同一个教师预测复制给多个 GT，只能作为候选存在性的上界。若禁止 reuse，简单地“从第一个 GT 开始”仍依赖 GT 顺序。当前更合理的默认候选是 P3：先最大化一对一匹配数，再最小化归一化中心距离；teacher score 可作为相同距离下的次级 tie-break，而不是主分配顺序。
+M1 采用最直接、最容易解释的改法：每个 GT 独立寻找半径内同类最近 proposal，并允许 proposal reuse。它与 distance-only q 完全对齐，也没有 GT 顺序依赖。代价是密集场景中同一个教师预测可能监督多个 GT，因此复用率必须随训练结果一起报告。
 
-离线匹配改善不等同于学生 mAP/NDS 改善。P3 降低了被选 proposal 的平均 teacher score，因此必须用一次严格单变量训练判断“更近的几何监督”是否比“更高置信度监督”更有价值。
+离线匹配改善不等同于学生 mAP/NDS 改善。必须用一次严格单变量训练判断“更近、与 q 一致的几何监督”能否提升学生性能。
 
 ### 下一步
 
-1. 实现 `hungarian_normalized_distance`，保持 exact class、1 m/2 m、strict radius、q 公式、mask 和所有训练参数不变。
-2. 增加固定 batch 回归：P3 assignment 必须复现离线 coverage、distance、q，并记录相对 P0 的 changed-assignment rate。
-3. 先训练 seed 0 与 B1 对照；若 mAP/NDS 或几何指标有一致改善，再补 seed 1/2。
-4. 暂不采用 proposal reuse；若 P3 无收益，再单独研究 score 作为 tie-break 或 quality gate。
+1. 实现 `gt_nearest`：保持 exact class、1 m/2 m、strict radius、q 公式、mask 和所有训练参数不变，只取消 proposal 独占。
+2. 增加回归测试，确认低分但更近的 proposal 会被选择，且同一 proposal 可以匹配多个 GT。
+3. 训练 seed 0 与 B1 对照；同时报告 proposal reuse rate 和 changed-assignment rate。
+4. 若 M1 无收益，再考虑一对一全局分配或 score quality gate；不在 M1 中混入第二个变量。
 
 ## 下一轮实验队列
 
 | 优先级 | 实验 | 要回答的问题 | 唯一变化 | 成功标准 | 状态 |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | M1-Hungarian-s0 | distance-aligned 一对一分配能否改善蒸馏？ | B1 仅替换 P0 为 P3 | 离线机制复现；mAP/NDS 或几何指标改善 | Planned |
+| 1 | M1-GT-nearest-s0 | GT-first 最近邻并允许复用能否改善蒸馏？ | B1 仅替换匹配选择与 proposal 独占规则 | 回归测试通过；mAP/NDS 或几何指标改善 | Implemented, not run |
 | 2 | Bridge-U-M | B0/B1 差异来自 feature policy 还是 bbox response gate？ | B0 的 feature 设置 + B1 的 `matched_gt` response | 能拆开两类贡献 | Planned |
 | 3 | B2-fixed diagnostic | scaler 是否真实、对称地改变 mask？ | 修复 deadzone并增加统计 | mask/center change 可测且方向合理 | Planned |
 | 4 | B2-fixed-s0 | 修复后能否保持 B2 收益？ | 使用修复后的 scaler | mAP/NDS 不低于 B1，几何指标保持改善 | Blocked by diagnostic |

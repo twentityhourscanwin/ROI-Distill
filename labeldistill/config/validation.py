@@ -148,7 +148,11 @@ def validate_config(
         ),
         "matching.selection": (
             config.matching.selection,
-            {"highest_score", "score_first_nearest_unmatched_gt"},
+            {
+                "highest_score",
+                "score_first_nearest_unmatched_gt",
+                "gt_nearest",
+            },
         ),
         "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
         "region.value.type": (
@@ -296,17 +300,18 @@ def validate_config(
             "scale-conditioned matching requires class_policy=exact_class",
             errors,
         )
-        _require(
-            config.matching.selection == "score_first_nearest_unmatched_gt",
-            "scale-conditioned matching requires "
-            "selection=score_first_nearest_unmatched_gt",
-            errors,
-        )
-        _require(
-            config.matching.one_to_one,
-            "scale-conditioned matching requires one_to_one=true",
-            errors,
-        )
+        if config.matching.selection == "score_first_nearest_unmatched_gt":
+            _require(
+                config.matching.one_to_one,
+                "score_first_nearest_unmatched_gt requires one_to_one=true",
+                errors,
+            )
+        elif config.matching.selection == "gt_nearest":
+            _require(
+                not config.matching.one_to_one,
+                "gt_nearest requires one_to_one=false so proposals may be reused",
+                errors,
+            )
         _require(
             config.matching.strict_less_than,
             "scale-conditioned matching requires strict_less_than=true",

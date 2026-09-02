@@ -175,6 +175,22 @@ def test_center_value_baseline_resolves_strict_low_parameter_policy():
     assert config.scheduler.warmup_steps == 200
 
 
+def test_m1_resolves_gt_nearest_with_proposal_reuse():
+    bundle = load_and_resolve_config(
+        PROJECT_ROOT / "configs/experiments/m1_gt_nearest_reuse.yaml",
+        project_root=PROJECT_ROOT,
+        require_checkpoint=False,
+    )
+
+    config = bundle.config
+    assert config.matching.selection == "gt_nearest"
+    assert config.matching.one_to_one is False
+    assert config.matching.class_policy == "exact_class"
+    assert config.matching.strict_less_than is True
+    assert config.region.value.type == "normalized_squared_margin"
+    assert config.region.scaler.enabled is False
+
+
 @pytest.mark.parametrize(
     "override, message",
     [

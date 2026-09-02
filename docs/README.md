@@ -81,6 +81,14 @@ python tools/train.py \
   --config configs/experiments/b2_teacher_value_adaptive_scale.yaml
 ```
 
+### M1：GT-nearest + proposal reuse
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 \
+python tools/train.py \
+  --config configs/experiments/m1_gt_nearest_reuse.yaml
+```
+
 如需改变 GPU 或 batch，使用显式覆盖，并把 resolved global batch/LR 写入实验台账：
 
 ```bash

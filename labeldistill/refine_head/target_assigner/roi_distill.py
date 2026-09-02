@@ -191,14 +191,24 @@ class ProposalTargetLayer(nn.Module):
             if class_policy != 'exact_class':
                 raise ValueError(
                     'scale-conditioned matching requires exact_class policy')
-            if selection != 'score_first_nearest_unmatched_gt':
+            if selection not in {
+                    'score_first_nearest_unmatched_gt', 'gt_nearest'}:
                 raise ValueError(
-                    'scale-conditioned matching requires score-first nearest '
-                    'unmatched GT selection')
-            if not one_to_one or not strict_less_than:
+                    f'Unsupported selection={selection!r} for '
+                    'scale-conditioned matching')
+            if (selection == 'score_first_nearest_unmatched_gt'
+                    and not one_to_one):
                 raise ValueError(
-                    'scale-conditioned matching requires one_to_one and strict '
-                    'less-than distance gates')
+                    'score-first nearest unmatched GT selection requires '
+                    'one_to_one')
+            if selection == 'gt_nearest' and one_to_one:
+                raise ValueError(
+                    'gt_nearest selection requires proposal reuse '
+                    '(one_to_one=False)')
+            if not strict_less_than:
+                raise ValueError(
+                    'scale-conditioned matching requires strict less-than '
+                    'distance gates')
         self.matching_type = matching_type
         self.class_policy = class_policy
         self.selection = selection
@@ -444,7 +454,7 @@ class ProposalTargetLayer(nn.Module):
 
     def _match_single_scale_conditioned(
             self, cur_roi, cur_scores, cur_labels, cur_gt, bda_mat=None):
-        """Official-style exact-class, score-first one-to-one matching."""
+        """Exact-class matching with class-specific center-distance gates."""
         num_gt = len(cur_gt)
         roi_dim = cur_roi.shape[-1]
         device = cur_gt.device
@@ -490,33 +500,10 @@ class ProposalTargetLayer(nn.Module):
             if gt_indices.numel() == 0 or pred_indices.numel() == 0:
                 continue
 
-            # Stable sorting preserves decoder proposal order for equal scores.
-            order = torch.argsort(
-                cur_scores[pred_indices], descending=True, stable=True)
-            pred_indices = pred_indices[order]
-            available_gt = torch.ones(
-                gt_indices.numel(), dtype=torch.bool, device=device)
             class_radius = trust_radii[gt_indices[0]]
             augmented_class_radius = class_radius * bda_scale
 
-            for pred_idx in pred_indices:
-                distances = center_distances[pred_idx, gt_indices]
-                within_radius = (
-                    distances < augmented_class_radius
-                    if self.strict_less_than
-                    else distances <= augmented_class_radius
-                )
-                candidates = torch.nonzero(
-                    available_gt & within_radius,
-                    as_tuple=False).flatten()
-                if candidates.numel() == 0:
-                    continue
-                candidate_distances = distances[candidates]
-                local_choice = candidates[candidate_distances.argmin()]
-                gt_idx = gt_indices[local_choice]
-                distance = distances[local_choice]
-
-                available_gt[local_choice] = False
+            def assign(gt_idx, pred_idx, distance):
                 quality[gt_idx] = int(MatchQuality.HIGH)
                 matched_rois[gt_idx] = cur_roi[pred_idx]
                 matched_scores[gt_idx] = cur_scores[pred_idx]
@@ -528,6 +515,44 @@ class ProposalTargetLayer(nn.Module):
                 normalized_distance = canonical_distance / class_radius
                 teacher_values[gt_idx] = torch.clamp(
                     1.0 - normalized_distance.square(), min=0.0)
+
+            if self.selection == 'gt_nearest':
+                # M1: every GT independently selects its closest same-class
+                # proposal. Proposal indices are intentionally not consumed,
+                # so one teacher prediction may supervise multiple nearby GTs.
+                for gt_idx in gt_indices:
+                    distances = center_distances[pred_indices, gt_idx]
+                    within_radius = distances < augmented_class_radius
+                    candidates = torch.nonzero(
+                        within_radius, as_tuple=False).flatten()
+                    if candidates.numel() == 0:
+                        continue
+                    candidate_distances = distances[candidates]
+                    local_choice = candidates[candidate_distances.argmin()]
+                    pred_idx = pred_indices[local_choice]
+                    assign(gt_idx, pred_idx, distances[local_choice])
+                continue
+
+            # P0: stable sorting preserves decoder proposal order for equal
+            # scores, then each proposal claims its nearest unmatched GT.
+            order = torch.argsort(
+                cur_scores[pred_indices], descending=True, stable=True)
+            pred_indices = pred_indices[order]
+            available_gt = torch.ones(
+                gt_indices.numel(), dtype=torch.bool, device=device)
+            for pred_idx in pred_indices:
+                distances = center_distances[pred_idx, gt_indices]
+                within_radius = distances < augmented_class_radius
+                candidates = torch.nonzero(
+                    available_gt & within_radius,
+                    as_tuple=False).flatten()
+                if candidates.numel() == 0:
+                    continue
+                candidate_distances = distances[candidates]
+                local_choice = candidates[candidate_distances.argmin()]
+                gt_idx = gt_indices[local_choice]
+                available_gt[local_choice] = False
+                assign(gt_idx, pred_idx, distances[local_choice])
 
         return (
             quality, matched_rois, matched_scores, matched_labels,

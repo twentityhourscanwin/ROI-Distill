@@ -1,0 +1,15 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: m1_gt_nearest_reuse
+  seed: 0
+  description: >-
+    B1 matching ablation: each effective GT selects its closest exact-class
+    teacher proposal inside the class trust radius; proposals may be reused.
+
+matching:
+  selection: gt_nearest
+  one_to_one: false
+
+runtime:
+  output_dir: outputs/m1_gt_nearest_reuse
