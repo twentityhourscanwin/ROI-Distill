@@ -150,7 +150,6 @@ def validate_config(
             config.matching.selection,
             {
                 "highest_score",
-                "score_first_nearest_unmatched_gt",
                 "gt_nearest",
             },
         ),
@@ -300,18 +299,16 @@ def validate_config(
             "scale-conditioned matching requires class_policy=exact_class",
             errors,
         )
-        if config.matching.selection == "score_first_nearest_unmatched_gt":
-            _require(
-                config.matching.one_to_one,
-                "score_first_nearest_unmatched_gt requires one_to_one=true",
-                errors,
-            )
-        elif config.matching.selection == "gt_nearest":
-            _require(
-                not config.matching.one_to_one,
-                "gt_nearest requires one_to_one=false so proposals may be reused",
-                errors,
-            )
+        _require(
+            config.matching.selection == "gt_nearest",
+            "scale-conditioned matching requires selection=gt_nearest",
+            errors,
+        )
+        _require(
+            not config.matching.one_to_one,
+            "gt_nearest requires one_to_one=false so proposals may be reused",
+            errors,
+        )
         _require(
             config.matching.strict_less_than,
             "scale-conditioned matching requires strict_less_than=true",

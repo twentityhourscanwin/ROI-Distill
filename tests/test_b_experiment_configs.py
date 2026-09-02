@@ -47,14 +47,13 @@ def _scientific_diff(left, right):
     }
 
 
-def test_b0_b1_b2_b1t_and_m1_are_controlled_relatives_of_b1():
+def test_b0_b1_b2_b1t_are_controlled_relatives_of_b1():
     b0 = _load('b0_full_gt_uniform_no_scale.yaml')
     b1 = _load('b1_teacher_value_no_scale.yaml')
     b2 = _load('b2_teacher_value_adaptive_scale.yaml')
     b1t = _load('b1t_teacher_value_elliptical_mask.yaml')
-    m1 = _load('m1_gt_nearest_reuse.yaml')
 
-    for config in (b0, b1, b2, b1t, m1):
+    for config in (b0, b1, b2, b1t):
         assert config.teacher.checkpoint == TEACHER
         assert config.teacher.checkpoint_prefix == 'model.centerpoint.'
         assert config.data.train_info == 'nuscenes_infos_train.pkl'
@@ -69,6 +68,8 @@ def test_b0_b1_b2_b1t_and_m1_are_controlled_relatives_of_b1():
         assert config.optimizer.backbone_lr_mult == 1.0
         assert config.scheduler.warmup_steps == 200
         assert config.scheduler.warmup_ratio == 0.001
+        assert config.matching.selection == 'gt_nearest'
+        assert config.matching.one_to_one is False
 
     assert _scientific_diff(b0, b1) == {
         'loss.response_bbox_scope',
@@ -77,8 +78,6 @@ def test_b0_b1_b2_b1t_and_m1_are_controlled_relatives_of_b1():
     assert b1.loss.response_bbox_scope == 'matched_gt'
     assert _scientific_diff(b1, b2) == {'region.scaler.enabled'}
     assert _scientific_diff(b1, b1t) == {'region.mask.type'}
-    assert _scientific_diff(b1, m1) == {
-        'matching.one_to_one', 'matching.selection'}
 
 
 def test_b_experiment_configs_reach_real_builder_consumers():
@@ -92,8 +91,6 @@ def test_b_experiment_configs_reach_real_builder_consumers():
         'b1t_teacher_value_elliptical_mask.yaml': (
             'normalized_squared_margin', False,
             'per_gt_elliptical_gaussian'),
-        'm1_gt_nearest_reuse.yaml': (
-            'normalized_squared_margin', False, 'per_gt_gaussian'),
     }
 
     class DummyModel(torch.nn.Module):
@@ -118,6 +115,5 @@ def test_b_experiment_configs_reach_real_builder_consumers():
         assert bundle.config.region.scaler.enabled is scaler_enabled
         assert captured['feature_loss_reducer'].mask_type == mask_type
         assert captured['feature_loss_reducer'].overlap_merge == 'max'
-        if name == 'm1_gt_nearest_reuse.yaml':
-            assert captured['matcher'].selection == 'gt_nearest'
-            assert captured['matcher'].one_to_one is False
+        assert captured['matcher'].selection == 'gt_nearest'
+        assert captured['matcher'].one_to_one is False

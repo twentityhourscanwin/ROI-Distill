@@ -90,7 +90,8 @@ def test_builder_wires_center_value_matcher_and_raw_union_reducer():
     reducer = captured['feature_loss_reducer']
     assert matcher.matching_type == 'scale_conditioned_center_distance'
     assert matcher.class_policy == 'exact_class'
-    assert matcher.one_to_one is True
+    assert matcher.selection == 'gt_nearest'
+    assert matcher.one_to_one is False
     assert matcher.strict_less_than is True
     assert matcher.value_type == 'normalized_squared_margin'
     assert matcher._trust_radius_lookup.tolist() == [

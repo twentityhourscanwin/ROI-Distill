@@ -1,8 +1,8 @@
 matching:
   type: scale_conditioned_center_distance
   class_policy: exact_class
-  selection: score_first_nearest_unmatched_gt
-  one_to_one: true
+  selection: gt_nearest
+  one_to_one: false
   strict_less_than: true
   trust_radius:
     small: 1.0

@@ -81,13 +81,7 @@ python tools/train.py \
   --config configs/experiments/b2_teacher_value_adaptive_scale.yaml
 ```
 
-### M1：GT-nearest + proposal reuse
-
-```bash
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 \
-python tools/train.py \
-  --config configs/experiments/m1_gt_nearest_reuse.yaml
-```
+在 `codex/matching-gt-nearest` 分支上，B1、B1T、B2 统一使用 M1：每个 GT 独立选择阈值内同类最近 proposal，并允许 proposal reuse；无需额外 M1 配置文件。`dev` 分支保留旧匹配机制。
 
 如需改变 GPU 或 batch，使用显式覆盖，并把 resolved global batch/LR 写入实验台账：
 

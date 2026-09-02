@@ -26,15 +26,13 @@ OFFICIAL_RANGES = {
 }
 
 
-def _center_value_matcher(
-        *, value_type='normalized_squared_margin',
-        selection='score_first_nearest_unmatched_gt', one_to_one=True):
+def _center_value_matcher(*, value_type='normalized_squared_margin'):
     return ProposalTargetLayer(
         structured=True,
         matching_type='scale_conditioned_center_distance',
         class_policy='exact_class',
-        selection=selection,
-        one_to_one=one_to_one,
+        selection='gt_nearest',
+        one_to_one=False,
         strict_less_than=True,
         trust_radius={'small': 1.0, 'large': 2.0},
         small_classes=SMALL_CLASSES,
@@ -154,11 +152,11 @@ def test_structured_result_flows_through_scaler_and_mask_generator():
     assert mask.max() > 0
 
 
-def test_center_value_matcher_is_exact_class_score_first_and_one_to_one():
+def test_center_value_matcher_is_gt_first_nearest_and_exact_class():
     boxes = torch.zeros((3, 9), dtype=torch.float32)
     boxes[:, 3:6] = 1.0
-    boxes[0, 0] = 0.30  # Highest score: nearest GT 0.
-    boxes[1, 0] = 0.10  # Then forced to the still-unmatched GT 1.
+    boxes[0, 0] = 0.30
+    boxes[1, 0] = 0.10
     boxes[2, 0] = 0.70  # Wrong class despite being centered on GT 1.
     proposals = ProposalBatch(
         boxes=[boxes],
@@ -174,10 +172,10 @@ def test_center_value_matcher_is_exact_class_score_first_and_one_to_one():
     result = _center_value_matcher()(proposals, gt_boxes, gt_labels)
 
     assert result.matched_mask[0].tolist() == [True, True]
-    assert result.matched_proposal_indices[0].tolist() == [0, 1]
+    assert result.matched_proposal_indices[0].tolist() == [1, 0]
     assert result.roi_labels[0].tolist() == [0, 0]
-    assert result.teacher_values[0][0] == torch.tensor(1 - (0.3 / 2) ** 2)
-    assert result.teacher_values[0][1] == torch.tensor(1 - (0.6 / 2) ** 2)
+    assert result.teacher_values[0][0] == torch.tensor(1 - (0.1 / 2) ** 2)
+    assert result.teacher_values[0][1] == torch.tensor(1 - (0.4 / 2) ** 2)
 
 
 def test_gt_nearest_prefers_geometry_over_teacher_score():
@@ -194,9 +192,7 @@ def test_gt_nearest_prefers_geometry_over_teacher_score():
     ])]
     gt_labels = [torch.tensor([0])]
 
-    result = _center_value_matcher(
-        selection='gt_nearest', one_to_one=False)(
-            proposals, gt_boxes, gt_labels)
+    result = _center_value_matcher()(proposals, gt_boxes, gt_labels)
 
     assert result.matched_proposal_indices[0].tolist() == [0]
     assert result.roi_scores[0].tolist() == [0.5]
@@ -217,9 +213,7 @@ def test_gt_nearest_allows_one_proposal_to_match_multiple_gt():
     ])]
     gt_labels = [torch.tensor([0, 0])]
 
-    result = _center_value_matcher(
-        selection='gt_nearest', one_to_one=False)(
-            proposals, gt_boxes, gt_labels)
+    result = _center_value_matcher()(proposals, gt_boxes, gt_labels)
 
     assert result.matched_mask[0].tolist() == [True, True]
     assert result.matched_proposal_indices[0].tolist() == [0, 0]

@@ -191,17 +191,10 @@ class ProposalTargetLayer(nn.Module):
             if class_policy != 'exact_class':
                 raise ValueError(
                     'scale-conditioned matching requires exact_class policy')
-            if selection not in {
-                    'score_first_nearest_unmatched_gt', 'gt_nearest'}:
+            if selection != 'gt_nearest':
                 raise ValueError(
-                    f'Unsupported selection={selection!r} for '
-                    'scale-conditioned matching')
-            if (selection == 'score_first_nearest_unmatched_gt'
-                    and not one_to_one):
-                raise ValueError(
-                    'score-first nearest unmatched GT selection requires '
-                    'one_to_one')
-            if selection == 'gt_nearest' and one_to_one:
+                    'scale-conditioned matching requires gt_nearest selection')
+            if one_to_one:
                 raise ValueError(
                     'gt_nearest selection requires proposal reuse '
                     '(one_to_one=False)')
@@ -516,42 +509,19 @@ class ProposalTargetLayer(nn.Module):
                 teacher_values[gt_idx] = torch.clamp(
                     1.0 - normalized_distance.square(), min=0.0)
 
-            if self.selection == 'gt_nearest':
-                # M1: every GT independently selects its closest same-class
-                # proposal. Proposal indices are intentionally not consumed,
-                # so one teacher prediction may supervise multiple nearby GTs.
-                for gt_idx in gt_indices:
-                    distances = center_distances[pred_indices, gt_idx]
-                    within_radius = distances < augmented_class_radius
-                    candidates = torch.nonzero(
-                        within_radius, as_tuple=False).flatten()
-                    if candidates.numel() == 0:
-                        continue
-                    candidate_distances = distances[candidates]
-                    local_choice = candidates[candidate_distances.argmin()]
-                    pred_idx = pred_indices[local_choice]
-                    assign(gt_idx, pred_idx, distances[local_choice])
-                continue
-
-            # P0: stable sorting preserves decoder proposal order for equal
-            # scores, then each proposal claims its nearest unmatched GT.
-            order = torch.argsort(
-                cur_scores[pred_indices], descending=True, stable=True)
-            pred_indices = pred_indices[order]
-            available_gt = torch.ones(
-                gt_indices.numel(), dtype=torch.bool, device=device)
-            for pred_idx in pred_indices:
-                distances = center_distances[pred_idx, gt_indices]
+            # M1: every GT independently selects its closest same-class
+            # proposal. Proposal indices are intentionally not consumed,
+            # so one teacher prediction may supervise multiple nearby GTs.
+            for gt_idx in gt_indices:
+                distances = center_distances[pred_indices, gt_idx]
                 within_radius = distances < augmented_class_radius
                 candidates = torch.nonzero(
-                    available_gt & within_radius,
-                    as_tuple=False).flatten()
+                    within_radius, as_tuple=False).flatten()
                 if candidates.numel() == 0:
                     continue
                 candidate_distances = distances[candidates]
                 local_choice = candidates[candidate_distances.argmin()]
-                gt_idx = gt_indices[local_choice]
-                available_gt[local_choice] = False
+                pred_idx = pred_indices[local_choice]
                 assign(gt_idx, pred_idx, distances[local_choice])
 
         return (
