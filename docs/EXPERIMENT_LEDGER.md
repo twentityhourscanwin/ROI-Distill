@@ -64,6 +64,49 @@
 | 结论 | 当前 seed 0 最优；收益主要体现在位置、尺度和速度指标，方向与属性没有同步改善。 |
 | 有效性 | scaler 存在正负 deadzone 不对称；未记录 mask changed rate、center-cell change rate 和几何分桶统计；修复和多 seed 前不能成为正式 baseline。 |
 
+## D1 — Teacher–GT matching graph audit
+
+这是一项只运行 frozen teacher 的诊断，不是学生训练实验，因此不写入 `VAL_RESULTS.md`。
+
+| 字段 | 内容 |
+| --- | --- |
+| 实验信息 | run_id `matching_graph_v2_20260902`；分支 `codex/matching-analysis`；提取 commit `605c17857ddd3687f30fe190260956250c5e89a1`；config `configs/experiments/b1_teacher_value_no_scale.yaml`；seed 0 |
+| Changelog | 基于 B1 的教师、decoder 和 GT 口径；不训练学生；identity BDA；逐样本确定性点云截断；缓存 exact-class、中心距离 `<4m` 的候选图；比较当前 greedy、GT-nearest/reuse、GT-highest-score/reuse、Hungarian distance 和 score×q/reuse |
+| Input | teacher checkpoint 和 train/val info 使用本文件顶部 SHA256；严格使用 current + past 5 + future 4；场景边界用 current sweep 补至 10 帧 |
+| Output | train `outputs/matching_graph_v2_train_20260902`；val `outputs/matching_graph_v2_val_20260902`；核心文件 `matching_analysis.json/.md`、`scope_summary.csv`、`threshold_sensitivity.csv`、`conflict_examples.png` |
+| Process | train 28,130 samples，两个 rank 各 14,065；val 6,019 samples，两个 rank 为 3,010/3,009；每个 split 做 1,000 次 sample-level bootstrap |
+| 有效性 | 两个 split 的 rank 完成标记、样本数、权重/数据 SHA256 和 10-sweep 时间差均核验；16 个 matcher 相关测试通过。原汇总器的上扩半径行会先截断候选图，已删除该两行并修复源码，核心五策略结果不受影响。 |
+
+### 五种匹配策略
+
+| Split | Policy | Matched / effective GT | Coverage | Mean q / all GT | Mean center distance | Mean teacher score | Mean BEV IoU |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| train | P0 current score-first greedy | 595,734 / 624,021 | 95.4670% | 0.8833 | 0.3099 m | 0.6024 | 0.6243 |
+| train | P1 GT-nearest, proposal reuse | 598,306 / 624,021 | 95.8791% | 0.8966 | 0.2981 m | 0.5959 | 0.6292 |
+| train | P2 GT-highest-score, proposal reuse | 598,306 / 624,021 | 95.8791% | 0.8717 | 0.3270 m | 0.6080 | 0.6096 |
+| train | P3 Hungarian normalized distance | 596,348 / 624,021 | 95.5654% | 0.8934 | 0.2983 m | 0.5945 | 0.6302 |
+| train | P4 max score×q, proposal reuse | 598,306 / 624,021 | 95.8791% | 0.8932 | 0.3032 m | 0.6044 | 0.6249 |
+| val | P0 current score-first greedy | 112,866 / 121,855 | 92.6232% | 0.8495 | 0.3272 m | 0.5916 | 0.6140 |
+| val | P1 GT-nearest, proposal reuse | 113,554 / 121,855 | 93.1878% | 0.8651 | 0.3137 m | 0.5837 | 0.6188 |
+| val | P2 GT-highest-score, proposal reuse | 113,554 / 121,855 | 93.1878% | 0.8388 | 0.3450 m | 0.5970 | 0.5980 |
+| val | P3 Hungarian normalized distance | 113,036 / 121,855 | 92.7627% | 0.8609 | 0.3141 m | 0.5826 | 0.6201 |
+| val | P4 max score×q, proposal reuse | 113,554 / 121,855 | 93.1878% | 0.8616 | 0.3191 m | 0.5930 | 0.6141 |
+
+### 关键诊断
+
+| 诊断 | train | val |
+| --- | ---: | ---: |
+| P3 − P0 matched GT | +614 | +170 |
+| P3 − P0 coverage | +0.0984 pp；bootstrap 95% CI `[+0.0902,+0.1069]` pp | +0.1395 pp；bootstrap 95% CI `[+0.1168,+0.1646]` pp |
+| P0 有候选但未匹配 | 2,572（0.4122% effective GT） | 688（0.5646%） |
+| 最近 proposal = 最高分 proposal | 93.22%；多候选 GT 中 71.38% | 92.72%；多候选 GT 中 69.54% |
+| P0 选中最近 proposal | 96.00% | 95.51% |
+| GT 顺序 greedy：正序/倒序不同 assignment | 9,817 | 2,555 |
+| edge score↔distance Spearman ρ | -0.5048 | -0.4740 |
+| edge score↔BEV-IoU Spearman ρ | +0.4955 | +0.4636 |
+
+结论：当前 P0 并非大面积失效，但目标不一致——它用 score 决定 proposal 顺序，最终 q 却只由距离决定。P3 在 train/val 都以更低距离、更高 q/IoU 和略高 coverage 稳定优于 P0，适合作为下一次单变量训练实验。P1 的额外 coverage 依赖 proposal reuse，只能视作上界；同一 proposal 监督多个相邻 GT 可能产生重复/冲突 target，不建议直接作为默认。按 GT 顺序做 one-to-one greedy 也不可靠，因为正序/倒序会改变数千个 assignment。
+
 ## 共同审计缺口
 
 | 问题 | 影响 | 下一步 |

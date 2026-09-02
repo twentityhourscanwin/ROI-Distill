@@ -103,6 +103,28 @@ python tools/evaluate.py \
 
 评测完成后把 `metrics_summary.json` 和 `metrics_details.json` 的结果写入 `VAL_RESULTS.md` 和 `EXPERIMENT_LEDGER.md`。
 
+## Teacher–GT 匹配诊断
+
+正式诊断使用当前训练代码一致的 teacher 输入：索引 `0..9`，即 current + past 5 + future 4；identity BDA；点云超限截断按 `seed + sample_index` 固定。
+
+```bash
+torchrun --standalone --nproc_per_node=2 \
+  tools/extract_teacher_gt_graph.py \
+  --config configs/experiments/b1_teacher_value_no_scale.yaml \
+  --split train \
+  --output-dir outputs/matching_graph_v2_train_<date> \
+  --batch-size 16 \
+  --num-workers 4
+
+python tools/analyze_teacher_gt_graph.py \
+  --input-dir outputs/matching_graph_v2_train_<date> \
+  --bootstrap-reps 1000
+```
+
+把 `--split` 和输出目录改为 `val` 即可运行验证集。提取阶段只前向一次 teacher，缓存 `<4m` 的 exact-class candidate graph；P0–P4、分桶、bootstrap 和冲突图都从缓存离线重算。
+
+不要用旧的 `tools/analyze_teacher_gt_matching.py` 产生新的正式结论：该脚本内部固定 `np.arange(9)`，实际得到 current + past 5 + future 3，再用 current padding 第十帧，与当前 teacher 的 future 4 输入不一致。历史输出只保留作追溯。
+
 ## 运行目录
 
 新训练自动产生 `YYYYMMDD_HHMMSS` run_id：

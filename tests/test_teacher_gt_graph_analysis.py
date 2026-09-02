@@ -11,6 +11,7 @@ from analyze_teacher_gt_graph import (  # noqa: E402
     assign_hungarian,
     assign_independent,
     gt_order_greedy,
+    threshold_sensitivity,
 )
 
 
@@ -59,3 +60,21 @@ def test_gt_centric_one_to_one_depends_on_iteration_order():
     assert forward != reverse
     assert len(forward) == 1
     assert len(reverse) == 2
+
+
+def test_threshold_sensitivity_can_expand_beyond_current_radius():
+    gt = pd.DataFrame([
+        {"sample_index": 0, "gt_index": 0, "label": 5,
+         "ego_distance": 10.0, "speed": 0.0},
+    ])
+    edges = _edges([
+        [0, 0, 0, 5, 1.10, 0.9],
+    ])
+    rows = threshold_sensitivity(gt, edges)
+    p3 = {
+        row["radius_m"]: row["coverage"] for row in rows
+        if row["group"] == "small"
+        and row["policy"] == "P3_hungarian_distance"
+    }
+    assert p3[1.0] == 0.0
+    assert p3[1.25] == 1.0

@@ -510,10 +510,15 @@ def main():
     args = parse_args()
     input_dir = Path(args.input_dir).expanduser().resolve()
     metadata = json.loads((input_dir / "metadata.json").read_text(encoding="utf-8"))
-    gt, edges, proposal_degrees, tokens, part_paths = load_graph(input_dir)
+    gt, cached_edges, proposal_degrees, tokens, part_paths = load_graph(input_dir)
     gt = gt[gt.effective == 1].copy()
     gt_keys = list(zip(gt.sample_index.astype(int), gt.gt_index.astype(int)))
-    edges = candidate_edges_for_scope(edges, gt_keys)
+    # Keep the complete <4 m cache for threshold expansion.  The primary
+    # policy analysis uses the current 1 m/2 m radii, but sensitivity rows at
+    # 1.25 m/2.5 m must not be computed from an already-truncated graph.
+    all_edges = candidate_edges_for_scope(
+        cached_edges, gt_keys, small_radius=4.0, large_radius=4.0)
+    edges = candidate_edges_for_scope(all_edges, gt_keys)
     assignments = build_assignments(gt, edges)
     report = {
         "metadata": {**metadata, "parts": len(part_paths)},
@@ -540,7 +545,7 @@ def main():
     }
 
     scope = scope_rows(gt, edges, assignments)
-    sensitivity = threshold_sensitivity(gt, edges)
+    sensitivity = threshold_sensitivity(gt, all_edges)
     pd.DataFrame(scope).to_json(
         input_dir / "scope_summary.json", orient="records", indent=2)
     pd.DataFrame(scope).to_csv(input_dir / "scope_summary.csv", index=False)
