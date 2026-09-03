@@ -8,7 +8,7 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `dev` | `main@f5f1400` | `8c46dfe` | 集成 B 系列基线、配置系统、协作文档和 teacher–GT 匹配分析 | B0、B1、B1T、B2 的旧匹配基线 | 尚未设置 upstream | Active baseline |
 | `codex/matching-analysis` | `dev@a0655e3` | `605c178`、`045c61d` | 提取 teacher–GT candidate graph，重做 train/val 匹配统计并记录结论 | 只增加分析工具和文档，不改变训练机制 | 尚未设置 upstream | 已合入 `dev@8c46dfe` |
-| `codex/matching-gt-nearest` | `dev@8c46dfe` | `b230bac`、`7d4fd24` | M1：每个 GT 独立选择阈值内同类最近 proposal，允许 proposal reuse；删除旧 scale-conditioned 分配机制 | 该分支上的 B1、B1T、B2 均使用 M1 | `origin/codex/matching-gt-nearest` | Implemented, not run |
+| `codex/matching-gt-nearest` | `dev@8c46dfe` | `b230bac`、`7d4fd24`、`4c96ba6` | M1：每个 GT 独立选择阈值内同类最近 proposal，允许 proposal reuse；删除旧 scale-conditioned 分配机制 | B1/B1T/B2 已完成 seed 0；相对旧匹配 NDS 分别 `-0.0044/-0.0014/-0.0054` | `origin/codex/matching-gt-nearest` | Evaluated — negative, do not merge |
 
 ## 记录规则
 

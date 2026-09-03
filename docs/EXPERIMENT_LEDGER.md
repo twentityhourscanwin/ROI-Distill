@@ -64,6 +64,30 @@
 | 结论 | 当前 seed 0 最优；收益主要体现在位置、尺度和速度指标，方向与属性没有同步改善。 |
 | 有效性 | scaler 存在正负 deadzone 不对称；未记录 mask changed rate、center-cell change rate 和几何分桶统计；修复和多 seed 前不能成为正式 baseline。 |
 
+## M1 — GT-nearest + proposal reuse
+
+### 共同变化
+
+| 字段 | 内容 |
+| --- | --- |
+| 假设 | 与 distance-only `q` 对齐：每个 effective GT 独立选择严格半径内同类最近 proposal，允许同一 proposal 被多个 GT 复用。 |
+| 基线 | 对应旧匹配版本的 B1、B1T、B2；旧版本为 proposal score-first、最近 unmatched GT、一对一。 |
+| 保持不变 | exact class；small/large 半径 1 m/2 m；strict `<`；`q=max(0,1-(d/tau)^2)`；teacher decoder threshold/NMS；各自 mask/scaler；16 GPU × 16；24 epochs；seed 0。 |
+| 分支 | `codex/matching-gt-nearest`；B2 commit `7d4fd24`，B1/B1T commit `4c96ba6`；两 commit 之间只增加 `docs/BRANCH_LEDGER.md` 和 README 索引，无模型代码差异。 |
+| 评测 | 三者均使用普通 `last.ckpt`；nuScenes val 6019 samples；2 GPU × 16；checkpoint resolved config 已核验为 `selection=gt_nearest`、`one_to_one=false`。 |
+
+### 三组运行
+
+| 实验 | 实验信息 | Changelog | Output | 效果 | 相对旧匹配 | 结论 |
+| --- | --- | --- | --- | --- | --- | --- |
+| B1-M1 | run_id `20260902_211006`；commit `4c96ba6`；config `configs/experiments/b1_teacher_value_no_scale.yaml` | B1 仅替换匹配机制；circular Gaussian；无 adaptive scaler | train `outputs/b1_teacher_value_no_scale_20260902_211006`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b1_teacher_value_no_scale_20260902_211006/last.ckpt`；eval `outputs/evaluation/b1_teacher_value_no_scale_20260902_211006_val_2x16` | mAP 0.3895；NDS 0.5003；mATE 0.6268；mASE 0.2663；mAOE 0.4311；mAVE 0.4010；mAAE 0.2193 | mAP `+0.0014`；NDS `-0.0044` | mAP 小幅提高，但所有主要 TP error 均未改善，综合质量下降。 |
+| B1T-M1 | run_id `20260902_210959`；commit `4c96ba6`；config `configs/experiments/b1t_teacher_value_elliptical_mask.yaml` | B1T 仅替换匹配机制；保留 elliptical mask；无 adaptive scaler | train `outputs/b1t_teacher_value_elliptical_mask_20260902_210959`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b1t_teacher_value_elliptical_mask_20260902_210959/last.ckpt`；eval `outputs/evaluation/b1t_teacher_value_elliptical_mask_20260902_210959_val_2x16` | mAP 0.3909；NDS 0.5023；mATE 0.6215；mASE 0.2606；mAOE 0.4375；mAVE 0.3882；mAAE 0.2240 | mAP `+0.0018`；NDS `-0.0014` | 三个 M1 组合中最好，但仍未超过对应旧匹配的 NDS。 |
+| B2-M1 | run_id `20260902_210640`；commit `7d4fd24`；config `configs/experiments/b2_teacher_value_adaptive_scale.yaml` | B2 仅替换匹配机制；保留 circular mask 与 AdaptiveGTScalerV3 | train `outputs/b2_teacher_value_adaptive_scale_20260902_210640`；checkpoint `/mnt/nas_data/guqiupeng/checkpoint_nes/b2_teacher_value_adaptive_scale_20260902_210640/last.ckpt`；eval `outputs/evaluation/b2_teacher_value_adaptive_scale_20260902_210640_val_2x16` | mAP 0.3877；NDS 0.5015；mATE 0.6371；mASE 0.2623；mAOE 0.4182；mAVE 0.3928；mAAE 0.2129 | mAP `-0.0045`；NDS `-0.0054` | 明确退化；M1 与 proposal 几何驱动的 scaler 组合风险最大。 |
+
+### M1 判定
+
+离线统计中的更高 coverage、更短中心距离和更高 mean q 没有转化为更高 NDS。M1 会忽略候选 proposal 的相对置信度，并允许一个 proposal 同时监督多个 GT；“中心最近”也不保证尺寸、朝向和速度更可靠。该分支保留为负实验记录，不合入 `dev`，旧匹配继续作为训练基线。
+
 ## D1 — Teacher–GT matching graph audit
 
 这是一项只运行 frozen teacher 的诊断，不是学生训练实验，因此不写入 `VAL_RESULTS.md`。

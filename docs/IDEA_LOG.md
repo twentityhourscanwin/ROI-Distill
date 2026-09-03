@@ -76,6 +76,7 @@ union-mask-mass 归一化还会让单个孤立 ROI 的整体 q 在分子和分�
 - 当前 P0 coverage 为 95.4670% / 92.6232%；全局一对一 P3 为 95.5654% / 92.7627%，净增 614 / 170 个匹配。
 - P3 把平均中心距离从 0.3099/0.3272 m 降到 0.2983/0.3141 m，mean q 从 0.8833/0.8495 提升到 0.8934/0.8609，BEV IoU 也同步提高。
 - 多候选 GT 中，“最近 proposal = 最高分 proposal”只有 71.38% / 69.54%。按 GT 正序或倒序 greedy 会改变 9,817 / 2,555 个 assignment。
+- M1 已在 B1、B1T、B2 上完成 seed 0 训练：相对旧匹配，mAP 分别变化 `+0.0014/+0.0018/-0.0045`，NDS 分别变化 `-0.0044/-0.0014/-0.0054`。
 
 ### 分析
 
@@ -83,20 +84,20 @@ union-mask-mass 归一化还会让单个孤立 ROI 的整体 q 在分子和分�
 
 M1 采用最直接、最容易解释的改法：每个 GT 独立寻找半径内同类最近 proposal，并允许 proposal reuse。它与 distance-only q 完全对齐，也没有 GT 顺序依赖。代价是密集场景中同一个教师预测可能监督多个 GT，因此复用率必须随训练结果一起报告。
 
-离线匹配改善不等同于学生 mAP/NDS 改善。必须用一次严格单变量训练判断“更近、与 q 一致的几何监督”能否提升学生性能。
+训练结果否定了“更近、与 q 一致就会带来更好蒸馏”的假设。M1 忽略候选 proposal 的相对置信度，中心最近也不等于尺寸、朝向和速度最可靠；proposal reuse 还可能复制同一个教师误差。B2 的退化最大，说明用匹配 proposal 的几何偏差驱动 scaler 时，这种噪声会进一步放大。
 
 ### 下一步
 
-1. 实现 `gt_nearest`：保持 exact class、1 m/2 m、strict radius、q 公式、mask 和所有训练参数不变，只取消 proposal 独占。
-2. 增加回归测试，确认低分但更近的 proposal 会被选择，且同一 proposal 可以匹配多个 GT。
-3. 训练 seed 0 与 B1 对照；同时报告 proposal reuse rate 和 changed-assignment rate。
-4. 若 M1 无收益，再考虑一对一全局分配或 score quality gate；不在 M1 中混入第二个变量。
+1. M1 标记为负实验，分支保留但不合入 `dev`；训练基线回到旧匹配。
+2. 不为 M1 补 seed 1/2；当前三种组合方向已经足以否定其作为默认机制。
+3. 暂停继续修改 matching，先完成 Bridge-U-M，拆开 B0/B1 的 feature value 与 bbox response gate 混杂。
+4. 后续若重启 matching，只允许单独测试 score quality gate 或全局一对一方案，并明确解决 proposal 可靠性与复用冲突。
 
 ## 下一轮实验队列
 
 | 优先级 | 实验 | 要回答的问题 | 唯一变化 | 成功标准 | 状态 |
 | ---: | --- | --- | --- | --- | --- |
-| 1 | M1-GT-nearest-s0 | GT-first 最近邻并允许复用能否改善蒸馏？ | B1 仅替换匹配选择与 proposal 独占规则 | 回归测试通过；mAP/NDS 或几何指标改善 | Implemented, not run |
+| — | M1-GT-nearest-s0 | GT-first 最近邻并允许复用能否改善蒸馏？ | B1/B1T/B2 仅替换匹配机制 | 三组均未改善 NDS；B2 mAP/NDS 同时下降 | Evaluated — negative, do not merge |
 | 2 | Bridge-U-M | B0/B1 差异来自 feature policy 还是 bbox response gate？ | B0 的 feature 设置 + B1 的 `matched_gt` response | 能拆开两类贡献 | Planned |
 | 3 | B2-fixed diagnostic | scaler 是否真实、对称地改变 mask？ | 修复 deadzone并增加统计 | mask/center change 可测且方向合理 | Planned |
 | 4 | B2-fixed-s0 | 修复后能否保持 B2 收益？ | 使用修复后的 scaler | mAP/NDS 不低于 B1，几何指标保持改善 | Blocked by diagnostic |
