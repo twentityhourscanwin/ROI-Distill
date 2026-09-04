@@ -1,0 +1,19 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b3_speed_half_asymmetric_circular
+  description: >-
+    B1 plus velocity-only half-displacement GT expansion. Past/future extents
+    follow their time spans and the feature mask remains circular.
+
+region:
+  scaler:
+    type: velocity_only_half
+    enabled: true
+    displacement_fraction: 0.5
+    past_time_seconds: 0.25
+    future_time_seconds: 0.20
+    center_mode: temporal_midpoint
+
+runtime:
+  output_dir: outputs/b3_speed_half_asymmetric_circular

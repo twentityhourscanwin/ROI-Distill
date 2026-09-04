@@ -1,0 +1,14 @@
+_base_: b3_speed_half_asymmetric_circular.yaml
+
+experiment:
+  name: b3t_speed_half_asymmetric_elliptical
+  description: >-
+    B3 speed-half asymmetric geometry with an oriented elliptical Gaussian
+    mask; matching, q, response KD and optimization settings remain unchanged.
+
+region:
+  mask:
+    type: per_gt_elliptical_gaussian
+
+runtime:
+  output_dir: outputs/b3t_speed_half_asymmetric_elliptical
