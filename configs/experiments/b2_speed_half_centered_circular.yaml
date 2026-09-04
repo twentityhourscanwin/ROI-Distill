@@ -1,0 +1,19 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b2_speed_half_centered_circular
+  description: >-
+    B1 plus velocity-only half-displacement GT size expansion. The current GT
+    center stays fixed and the feature mask remains circular.
+
+region:
+  scaler:
+    type: velocity_only_half
+    enabled: true
+    displacement_fraction: 0.5
+    past_time_seconds: 0.25
+    future_time_seconds: 0.20
+    center_mode: fixed
+
+runtime:
+  output_dir: outputs/b2_speed_half_centered_circular
