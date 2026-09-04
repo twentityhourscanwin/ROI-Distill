@@ -9,6 +9,7 @@
 | [VAL_RESULTS.md](VAL_RESULTS.md) | 简洁查看当前实验结果 |
 | [EXPERIMENT_LEDGER.md](EXPERIMENT_LEDGER.md) | 查看单次实验的完整配置、产物和有效性 |
 | [IDEA_LOG.md](IDEA_LOG.md) | 根据结果分析问题并规划下一轮 idea |
+| [MULTISWEEP_VELOCITY_SCALING_AUDIT.md](MULTISWEEP_VELOCITY_SCALING_AUDIT.md) | 统计大/小类框尺寸、速度与 10-sweep 物理包络，规划速度-only scaler 实验 |
 | [README.md](README.md) | 通用训练命令、当前 dev 设置和 Git 规则 |
 
 ## 当前开发状态
