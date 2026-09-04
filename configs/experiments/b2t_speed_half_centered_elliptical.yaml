@@ -1,0 +1,14 @@
+_base_: b2_speed_half_centered_circular.yaml
+
+experiment:
+  name: b2t_speed_half_centered_elliptical
+  description: >-
+    B2 speed-half centered geometry with an oriented elliptical Gaussian mask;
+    all matching, q, response KD and optimization settings remain unchanged.
+
+region:
+  mask:
+    type: per_gt_elliptical_gaussian
+
+runtime:
+  output_dir: outputs/b2t_speed_half_centered_elliptical

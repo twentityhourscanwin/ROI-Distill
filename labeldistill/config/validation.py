@@ -150,7 +150,14 @@ def validate_config(
             config.matching.selection,
             {"highest_score", "score_first_nearest_unmatched_gt"},
         ),
-        "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
+        "region.scaler.type": (
+            config.region.scaler.type,
+            {"adaptive_gt_scaler_v3", "velocity_only_half"},
+        ),
+        "region.scaler.center_mode": (
+            config.region.scaler.center_mode,
+            {"fixed", "temporal_midpoint"},
+        ),
         "region.value.type": (
             config.region.value.type,
             {"legacy_discrete", "normalized_squared_margin", "uniform_gt"},
@@ -222,6 +229,27 @@ def validate_config(
     _require(
         config.region.scaler.max_distance > 0,
         "region.scaler.max_distance must be positive",
+        errors,
+    )
+    _require(
+        0 < config.region.scaler.displacement_fraction <= 1,
+        "region.scaler.displacement_fraction must be in (0, 1]",
+        errors,
+    )
+    _require(
+        config.region.scaler.past_time_seconds >= 0,
+        "region.scaler.past_time_seconds must be non-negative",
+        errors,
+    )
+    _require(
+        config.region.scaler.future_time_seconds >= 0,
+        "region.scaler.future_time_seconds must be non-negative",
+        errors,
+    )
+    _require(
+        config.region.scaler.past_time_seconds
+        + config.region.scaler.future_time_seconds > 0,
+        "velocity scaler time span must be positive",
         errors,
     )
 
