@@ -103,3 +103,8 @@ union-mask-mass 归一化还会让单个孤立 ROI 的整体 q 在分子和分�
 | 5 | B0/B1/B2 seeds | 千分位差异是否稳定？ | seed 1/2 | 报告 mean/std，方向基本一致 | Blocked by code freeze |
 | 6 | EMA A/B | EMA 是否值得保存和评测？ | 同一 run 比较 last/EMA | 明确指标收益与存储成本 | Planned |
 | 7 | Gradient audit | 各 loss 是否发生梯度冲突？ | 固定 checkpoint/batches，仅做诊断 | 得到各参数组 norm/cosine/clipping | Planned |
+
+
+## 2026-09-05 独立消融分支
+
+实现与验证已完成，未启动训练。假设、变量、对照和命令见 [RADIUS_CAP_ABLATION.md](RADIUS_CAP_ABLATION.md)。

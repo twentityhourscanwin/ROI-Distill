@@ -171,6 +171,7 @@ class MaskConfig:
     boost_small_medium: bool = True
     gaussian_overlap: float = 0.1
     min_radius: int = 2
+    max_radius: Optional[int] = None
     normalize_per_instance: bool = False
     overlap_merge: str = "max"
 

@@ -1,0 +1,14 @@
+_base_: r1_teacher_value_radius_cap.yaml
+
+experiment:
+  name: r2_adaptive_radius_cap
+  description: >-
+    R1 with original AdaptiveGTScalerV3 enabled. Paired with R1 to test
+    Adaptive geometry under the same capped-radius drawing rule.
+
+region:
+  scaler:
+    enabled: true
+
+runtime:
+  output_dir: outputs/r2_adaptive_radius_cap

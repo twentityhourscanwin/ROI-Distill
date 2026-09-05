@@ -188,6 +188,13 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
+    if config.region.mask.max_radius is not None:
+        _require(
+            config.region.mask.type == "per_gt_gaussian",
+            "max_radius is supported only for per_gt_gaussian", errors)
+        _require(
+            config.region.mask.max_radius >= config.region.mask.min_radius,
+            "max_radius must be >= min_radius", errors)
     w_low = config.region.mask.w_low
     w_high = config.region.mask.w_high
     if config.region.mask.type == "quality_aware_mask_v3":

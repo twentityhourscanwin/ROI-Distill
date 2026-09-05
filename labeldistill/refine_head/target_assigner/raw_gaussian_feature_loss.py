@@ -38,7 +38,7 @@ class RawGaussianUnionFeatureLoss(nn.Module):
     def __init__(self, *, point_cloud_range, feature_map_size,
                  gaussian_overlap=0.1, min_radius=2,
                  small_class_ids=(), mask_type='per_gt_gaussian',
-                 overlap_merge='max'):
+                 overlap_merge='max', max_radius=None):
         super().__init__()
         if len(point_cloud_range) != 6:
             raise ValueError('point_cloud_range must contain six values')
@@ -52,6 +52,15 @@ class RawGaussianUnionFeatureLoss(nn.Module):
             raise ValueError(f'Unsupported mask_type={mask_type!r}')
         if overlap_merge not in {'max', 'sum'}:
             raise ValueError(f'Unsupported overlap_merge={overlap_merge!r}')
+        if max_radius is not None:
+            if (not isinstance(max_radius, int)
+                    or max_radius < min_radius):
+                raise ValueError(
+                    'max_radius must be an integer >= min_radius')
+            if mask_type != 'per_gt_gaussian':
+                raise ValueError(
+                    'max_radius is supported only for per_gt_gaussian')
+        self.max_radius = max_radius
         self.register_buffer(
             'point_cloud_range', torch.tensor(point_cloud_range),
             persistent=False)
@@ -104,7 +113,10 @@ class RawGaussianUnionFeatureLoss(nn.Module):
 
         radius_tensor = gaussian_radius(
             (size_y, size_x), min_overlap=self.gaussian_overlap)
-        radius = max(self.min_radius, int(radius_tensor.item()))
+        radius = int(radius_tensor.item())
+        if self.max_radius is not None:
+            radius = min(self.max_radius, radius)
+        radius = max(self.min_radius, radius)
 
         mask = torch.zeros(
             (feat_height, feat_width), device=device, dtype=torch.float32)

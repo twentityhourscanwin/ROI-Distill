@@ -1,0 +1,15 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: r1_teacher_value_radius_cap
+  description: >-
+    B1 with circular radius max(1, min(2, int(raw_radius))). Keep original
+    GT geometry, matching, q, interpolation and loss normalization unchanged.
+
+region:
+  mask:
+    min_radius: 1
+    max_radius: 2
+
+runtime:
+  output_dir: outputs/r1_teacher_value_radius_cap

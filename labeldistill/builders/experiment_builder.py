@@ -113,6 +113,7 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
             small_class_ids=small_class_ids,
             mask_type=config.region.mask.type,
             overlap_merge=config.region.mask.overlap_merge,
+            max_radius=config.region.mask.max_radius,
         )
     return experiment_cls(
         config=config,
