@@ -1,0 +1,20 @@
+_base_: r1_teacher_value_radius_cap.yaml
+
+experiment:
+  name: s1_speed_half_radius_cap
+  description: >-
+    Fixed-center half-speed GT expansion with circular radius
+    max(1, min(2, int(raw_radius))). Paired with R1 to isolate velocity;
+    paired with centered Speed B2 to isolate the radius rule.
+
+region:
+  scaler:
+    type: velocity_only_half
+    enabled: true
+    displacement_fraction: 0.5
+    past_time_seconds: 0.25
+    future_time_seconds: 0.20
+    center_mode: fixed
+
+runtime:
+  output_dir: outputs/s1_speed_half_radius_cap
