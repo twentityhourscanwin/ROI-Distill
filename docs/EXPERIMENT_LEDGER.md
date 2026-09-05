@@ -2,6 +2,20 @@
 
 本文件保存每个实验的完整上下文。快速比较只看 [VAL_RESULTS.md](VAL_RESULTS.md)；这里用于复现、排查和判断结论是否有效。
 
+## 2026-09-05 C1：已实现，待训练
+
+| 字段 | 内容 |
+| --- | --- |
+| 代码身份 | `codex/proposal-center-only`；算法提交 `f1af868`；起点 `dev@cec9362`；已推送 origin |
+| Config | `c1_proposal_center_only.yaml` |
+| Changelog | 仅 proposal 偏移驱动的中心移动；原尺寸不变、速度贡献为零；保留旧方向规则 |
+| 验证 | 相关测试 113 passed；最后一次非有限速度隔离调整后 C1 测试 19 passed；实际 teacher SHA256 和配置核对；4 个真实框 CPU 抽查 |
+| 训练 / Output | 未启动；未生成训练 run_id、checkpoint 和 evaluation 目录 |
+| 效果 | 待训练评测，不填入 VAL_RESULTS |
+| 说明 | [几何消融总览](GEOMETRY_ABLATIONS.md)；[CENTER_ONLY_ABLATION.md](CENTER_ONLY_ABLATION.md) |
+
+以下共同实验口径和 B 系列运行身份保留为历史记录，不代表新分支已进行训练。
+
 ## 共同实验口径
 
 | 项目 | 设置 |

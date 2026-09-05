@@ -1,5 +1,15 @@
 # C1：仅 proposal 偏移驱动的中心移动
 
+## 分支交付状态（2026-09-05）
+
+| 项目 | 状态 |
+| --- | --- |
+| 分支 | [codex/proposal-center-only](https://github.com/twentityhourscanwin/ROI-Distill/tree/codex/proposal-center-only) |
+| 起点 / 算法提交 | `dev@cec9362` / `f1af868` |
+| Git | 算法已提交并推送 origin；工作树跟踪同名远端分支；最新 HEAD 包含后续文档提交 |
+| 完整训练 / 评测 | 未启动；无 run_id、训练 checkpoint 或新 mAP/NDS |
+| 总览 | [几何消融分支与对照](GEOMETRY_ABLATIONS.md) |
+
 用户假设：监督区域向教师 proposal 调整可能改善师生有效特征的空间对应。C1 检验该假设，不把 proposal 中心等同于已测得的特征中心，也不移动或 warp 任一特征图。
 
 共同起点：`dev@cec9362`。两个分支分别从 dev 创建，没有互相合并。

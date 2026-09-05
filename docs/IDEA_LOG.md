@@ -107,4 +107,4 @@ union-mask-mass 归一化还会让单个孤立 ROI 的整体 q 在分子和分�
 
 ## 2026-09-05 独立消融分支
 
-实现与验证已完成，未启动训练。假设、变量、对照和命令见 [CENTER_ONLY_ABLATION.md](CENTER_ONLY_ABLATION.md)。
+实现与验证已完成，算法提交已推送 origin；未启动训练。分支和对照关系见 [几何消融总览](GEOMETRY_ABLATIONS.md)。假设、变量、对照和命令见 [CENTER_ONLY_ABLATION.md](CENTER_ONLY_ABLATION.md)。
