@@ -2,6 +2,20 @@
 
 本文件保存每个实验的完整上下文。快速比较只看 [VAL_RESULTS.md](VAL_RESULTS.md)；这里用于复现、排查和判断结论是否有效。
 
+## 2026-09-05 R1 / R2：已实现，待训练
+
+| 字段 | 内容 |
+| --- | --- |
+| 代码身份 | `codex/box-radius-cap`；算法提交 `02b2c6a`；起点 `dev@cec9362`；已推送 origin |
+| Config | `r1_teacher_value_radius_cap.yaml / r2_adaptive_radius_cap.yaml` |
+| Changelog | feature KD 圆形半径 max(1,min(2,int(raw_radius)))；R1 使用原 GT，R2 使用原 Adaptive |
+| 验证 | 相关测试 54 passed；实际 teacher SHA256 和配置核对；4 个真实框 CPU 抽查 |
+| 训练 / Output | 未启动；未生成训练 run_id、checkpoint 和 evaluation 目录 |
+| 效果 | 待训练评测，不填入 VAL_RESULTS |
+| 说明 | [几何消融总览](GEOMETRY_ABLATIONS.md)；[RADIUS_CAP_ABLATION.md](RADIUS_CAP_ABLATION.md) |
+
+以下共同实验口径和 B 系列运行身份保留为历史记录，不代表新分支已进行训练。
+
 ## 共同实验口径
 
 | 项目 | 设置 |

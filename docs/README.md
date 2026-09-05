@@ -2,6 +2,8 @@
 
 本文件保存项目的通用信息：当前开发基线、训练/评测命令、目录约定和 Git 工作流。
 
+本工作树是已推送的几何消融分支，尚未训练。当前分支参数、对照和验证见 [几何消融总览](GEOMETRY_ABLATIONS.md)；下方 dev 默认设置用于历史参考。
+
 ## 文档分工
 
 | 文档 | 用途 |
@@ -10,15 +12,17 @@
 | [EXPERIMENT_LEDGER.md](EXPERIMENT_LEDGER.md) | 查看单次实验的完整配置、产物和有效性 |
 | [IDEA_LOG.md](IDEA_LOG.md) | 根据结果分析问题并规划下一轮 idea |
 | [MULTISWEEP_VELOCITY_SCALING_AUDIT.md](MULTISWEEP_VELOCITY_SCALING_AUDIT.md) | 统计大/小类框尺寸、速度与 10-sweep 物理包络，规划速度-only scaler 实验 |
+| [GEOMETRY_ABLATIONS.md](GEOMETRY_ABLATIONS.md) | 新分支、实现提交、对照关系和训练状态 |
+| [RADIUS_CAP_ABLATION.md](RADIUS_CAP_ABLATION.md) | 本分支参数、验证及运行命令 |
 | [README.md](README.md) | 通用训练命令、当前 dev 设置和 Git 规则 |
 
 ## 当前开发状态
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 当前 Git 分支 | `dev` |
-| dev 起点 | 本文档所在提交；使用 `git rev-parse HEAD` 获取实际 SHA |
-| Working tree | dev 起点提交后应保持 clean；新的修改只在短期 idea 分支进行 |
+| 当前 Git 分支 | `codex/box-radius-cap`（已推送 origin） |
+| 分支起点 / 算法提交 | `dev@cec9362` / `02b2c6a`；实际 HEAD 见 `git rev-parse HEAD` |
+| Working tree | 独立 worktree；提交并推送后保持 clean |
 | 上一个 main HEAD | `f5f1400` |
 | 当前固定参考 | B1：mAP 0.3881，NDS 0.5047 |
 | 当前领先候选 | B2：mAP 0.3922，NDS 0.5069；尚未通过 scaler 机制和多 seed 门禁 |

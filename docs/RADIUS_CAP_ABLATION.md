@@ -1,5 +1,15 @@
 # R1/R2：由框计算并限制在 1-2 格的圆形 Gaussian
 
+## 分支交付状态（2026-09-05）
+
+| 项目 | 状态 |
+| --- | --- |
+| 分支 | [codex/box-radius-cap](https://github.com/twentityhourscanwin/ROI-Distill/tree/codex/box-radius-cap) |
+| 起点 / 算法提交 | `dev@cec9362` / `02b2c6a` |
+| Git | 算法已提交并推送 origin；工作树跟踪同名远端分支；最新 HEAD 包含后续文档提交 |
+| 完整训练 / 评测 | 未启动；无 run_id、训练 checkpoint 或新 mAP/NDS |
+| 总览 | [几何消融分支与对照](GEOMETRY_ABLATIONS.md) |
+
 共同起点：`dev@cec9362`。两个分支分别从 dev 创建，没有互相合并。
 本轮对照不采用 9/2 的 gt_nearest / proposal reuse 实验。
 
