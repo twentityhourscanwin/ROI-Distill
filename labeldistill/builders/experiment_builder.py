@@ -10,6 +10,9 @@ from labeldistill.presets import build_j4_model_configs
 from labeldistill.refine_head.target_assigner.adaptive_gt_scaler_v3 import (
     AdaptiveGTScalerV3,
 )
+from labeldistill.refine_head.target_assigner.proposal_center_only_scaler import (
+    ProposalCenterOnlyScaler,
+)
 from labeldistill.refine_head.target_assigner.quality_aware_mask_v3 import (
     QualityAwareMaskGeneratorV3,
 )
@@ -76,13 +79,17 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
         point_cloud_range=list(config.geometry.point_cloud_range),
         value_type=config.region.value.type,
     )
-    scaler = AdaptiveGTScalerV3(
+    scaler_kwargs = dict(
         mu=config.region.scaler.mu,
-        s_vel=config.region.scaler.velocity_scale,
         r_max=config.region.scaler.max_distance,
         class_names=class_names,
         distance_thresholds=thresholds,
     )
+    if config.region.scaler.type == 'proposal_center_only':
+        scaler = ProposalCenterOnlyScaler(**scaler_kwargs)
+    else:
+        scaler = AdaptiveGTScalerV3(
+            s_vel=config.region.scaler.velocity_scale, **scaler_kwargs)
     small_class_ids = [
         idx for idx, name in enumerate(class_names)
         if name in SMALL_CLASS_NAMES

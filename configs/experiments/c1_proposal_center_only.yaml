@@ -1,0 +1,18 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: c1_proposal_center_only
+  description: >-
+    B1 with Adaptive proposal-offset-only center displacement. Preserve GT
+    dimensions, legacy direction deadzone, matching, q and circular mask.
+    No velocity contribution. Compare with B1 and original Adaptive B2.
+
+region:
+  scaler:
+    type: proposal_center_only
+    enabled: true
+    mu: 0.15
+    velocity_scale: 0.0
+
+runtime:
+  output_dir: outputs/c1_proposal_center_only
