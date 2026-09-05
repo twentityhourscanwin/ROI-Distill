@@ -1,6 +1,6 @@
 # ROI-Distill
 
-本工作树为独立消融分支，当前实现和运行命令见 [分支实验说明](docs/RADIUS_CAP_ABLATION.md)。下方历史状态保留作参考。
+本工作树为速度扩张 + 半径限制组合分支 `codex/speed-radius-cap`，当前四组消融、实测掩码变化和运行命令见 [分支实验说明](docs/SPEED_RADIUS_ABLATION.md)。下方历史状态保留作参考。
 
 ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏研究仓库。学生为多帧 BEVDepth，相同样本上的冻结 CenterPoint 作为训练教师；实验由 YAML 配置驱动。
 

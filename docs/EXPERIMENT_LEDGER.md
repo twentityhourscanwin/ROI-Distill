@@ -2,6 +2,18 @@
 
 本文件保存每个实验的完整上下文。快速比较只看 [VAL_RESULTS.md](VAL_RESULTS.md)；这里用于复现、排查和判断结论是否有效。
 
+## 2026-09-05 S1：速度扩张 + 半径限制，待训练
+
+| 字段 | 内容 |
+| --- | --- |
+| 分支 / 代码 | `codex/speed-radius-cap`；实现和审计 `06a4390` |
+| 配置 | `s1_speed_half_radius_cap.yaml`；同分支另有 B1、固定中心 Speed B2、R1 构成四组 |
+| Changelog | 固定中心；0.5 倍速度位移扩长宽；radius=max(1,min(2,int(raw_radius))) |
+| 验证 | 70 passed；1,024 train frames、21,110 正 q GT 的 CPU mask 审计 |
+| 审计产物 | `outputs/speed_radius_audit_20260905`；汇总已归档 docs/evidence |
+| 训练 / 效果 | 未训练，无新 checkpoint 或 mAP/NDS |
+| 说明 | [四组消融与掩码实测](SPEED_RADIUS_ABLATION.md) |
+
 ## 2026-09-05 R1 / R2：已实现，待训练
 
 | 字段 | 内容 |

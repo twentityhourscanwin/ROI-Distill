@@ -108,3 +108,8 @@ union-mask-mass 归一化还会让单个孤立 ROI 的整体 q 在分子和分�
 ## 2026-09-05 独立消融分支
 
 实现与验证已完成，算法提交已推送 origin；未启动训练。分支和对照关系见 [几何消融总览](GEOMETRY_ABLATIONS.md)。假设、变量、对照和命令见 [RADIUS_CAP_ABLATION.md](RADIUS_CAP_ABLATION.md)。
+
+
+## 2026-09-05 速度与半径的 2x2 消融
+
+新增 `codex/speed-radius-cap`，同一代码提供速度开/关 x 半径规则旧/新的四组。优先比较 S1 与 R1，分离速度的增量效果；再结合同提交 B1/Speed B2 计算交互项。CPU 审计确认新规则下速度更易改变部分 car/truck mask，但小类仍受半径台阶限制；不能把组合相对 B1 的变化全部归因于速度。70 项测试通过，尚未训练。[完整设计和证据](SPEED_RADIUS_ABLATION.md)。

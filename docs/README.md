@@ -2,7 +2,7 @@
 
 本文件保存项目的通用信息：当前开发基线、训练/评测命令、目录约定和 Git 工作流。
 
-本工作树是已推送的几何消融分支，尚未训练。当前分支参数、对照和验证见 [几何消融总览](GEOMETRY_ABLATIONS.md)；下方 dev 默认设置用于历史参考。
+本工作树是速度与半径组合消融分支，已完成实现和 CPU 掩码审计，尚未训练。当前分支参数、四组对照和验证见 [速度/半径消融](SPEED_RADIUS_ABLATION.md)；下方 dev 默认设置用于历史参考。
 
 ## 文档分工
 
@@ -13,15 +13,16 @@
 | [IDEA_LOG.md](IDEA_LOG.md) | 根据结果分析问题并规划下一轮 idea |
 | [MULTISWEEP_VELOCITY_SCALING_AUDIT.md](MULTISWEEP_VELOCITY_SCALING_AUDIT.md) | 统计大/小类框尺寸、速度与 10-sweep 物理包络，规划速度-only scaler 实验 |
 | [GEOMETRY_ABLATIONS.md](GEOMETRY_ABLATIONS.md) | 新分支、实现提交、对照关系和训练状态 |
-| [RADIUS_CAP_ABLATION.md](RADIUS_CAP_ABLATION.md) | 本分支参数、验证及运行命令 |
+| [RADIUS_CAP_ABLATION.md](RADIUS_CAP_ABLATION.md) | 上游半径分支记录 |
+| [SPEED_RADIUS_ABLATION.md](SPEED_RADIUS_ABLATION.md) | 当前组合分支、四组消融及真实 mask 审计 |
 | [README.md](README.md) | 通用训练命令、当前 dev 设置和 Git 规则 |
 
 ## 当前开发状态
 
 | 项目 | 当前状态 |
 | --- | --- |
-| 当前 Git 分支 | `codex/box-radius-cap`（已推送 origin） |
-| 分支起点 / 算法提交 | `dev@cec9362` / `02b2c6a`；实际 HEAD 见 `git rev-parse HEAD` |
+| 当前 Git 分支 | `codex/speed-radius-cap` |
+| 分支起点 / 算法提交 | `codex/box-radius-cap@c9387af` / `06a4390`；实际 HEAD 见 `git rev-parse HEAD` |
 | Working tree | 独立 worktree；提交并推送后保持 clean |
 | 上一个 main HEAD | `f5f1400` |
 | 当前固定参考 | B1：mAP 0.3881，NDS 0.5047 |
