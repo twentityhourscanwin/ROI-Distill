@@ -1,5 +1,7 @@
 # R1/R2：由框计算并限制在 1-2 格的圆形 Gaussian
 
+2026-09-06：R1 已完成训练及全量 val 评测，mAP **0.382972** / NDS **0.503018**；[完整结果](VAL_RESULTS_20260906.md)。以下尚未训练的描述为此前实现阶段记录。运行统一使用原仓库，额外工作树已删除。
+
 ## 分支交付状态（2026-09-05）
 
 | 项目 | 状态 |
@@ -43,7 +45,7 @@ R1 vs B1 仅半径规则不同；R2 vs R1 仅 scaler.enabled 不同。R2 是补�
 ## 运行
 
 ```bash
-cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL_radius_cap
+cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL
 PYTHONPATH="$PWD" python tools/train.py --config configs/experiments/r1_teacher_value_radius_cap.yaml
 # 配套 Adaptive 组需单独运行：
 PYTHONPATH="$PWD" python tools/train.py --config configs/experiments/r2_adaptive_radius_cap.yaml
