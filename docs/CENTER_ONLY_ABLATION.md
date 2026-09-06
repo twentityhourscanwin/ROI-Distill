@@ -1,5 +1,7 @@
 # C1：仅 proposal 偏移驱动的中心移动
 
+2026-09-06：C1 已完成训练及全量 val 评测，mAP **0.388522** / NDS **0.503194**；[完整结果](VAL_RESULTS_20260906.md)。以下尚未训练的描述为此前实现阶段记录。运行统一使用原仓库，额外工作树已删除。
+
 ## 分支交付状态（2026-09-05）
 
 | 项目 | 状态 |
@@ -40,7 +42,7 @@ legacy_sign：offset > 0 为 +1，offset < -0.1m 为 -1，其余为 0。保留�
 ## 运行
 
 ```bash
-cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL_center_only
+cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL
 PYTHONPATH="$PWD" python tools/train.py --config configs/experiments/c1_proposal_center_only.yaml
 ```
 
