@@ -1,5 +1,7 @@
 # S1：速度扩张与半径规则的 2x2 消融
 
+2026-09-06：S1 已完成训练及全量 val 评测，mAP **0.384472** / NDS **0.500657**；[完整结果](VAL_RESULTS_20260906.md)。以下尚未训练的描述为此前实现阶段记录。运行统一使用原仓库，额外工作树已删除。
+
 分支 `codex/speed-radius-cap` 从 `codex/box-radius-cap@c9387af` 创建，移植固定中心速度实现 `a6b38dd`（本分支对应提交 `d0b93ae`）。两项机制最终都来源于 `dev@cec9362`，没有合入 proposal-center-only，也没有改 matching。
 组合实验、四组验证及审计工具提交：`06a4390`；后续文档提交不改变算法。当前实现和 CPU 审计已完成，尚未启动训练。
 
@@ -69,7 +71,7 @@ D/C 改变的单框来自 car 171/9,542（1.792%）和 truck 45/1,430（3.147%�
 组合组：
 
 ```bash
-cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL_speed_radius
+cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL
 PYTHONPATH="$PWD" python tools/train.py --config configs/experiments/s1_speed_half_radius_cap.yaml
 ```
 
@@ -78,7 +80,7 @@ PYTHONPATH="$PWD" python tools/train.py --config configs/experiments/s1_speed_ha
 重做审计时使用新的输出目录：
 
 ```bash
-cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL_speed_radius
+cd /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL
 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=-1 PYTHONPATH="$PWD" python tools/audit_speed_radius.py \
   --cache /mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL/outputs/matching_graph_v2_train_20260902 \
   --samples 1024 --seed 0 --output outputs/speed_radius_audit_repeat

@@ -1,5 +1,7 @@
 # 当前实验结果
 
+2026-09-06 更新：C1、R1、S1 已完成训练和完整 val 评测，见 [本轮完整指标与运行记录](VAL_RESULTS_20260906.md)。下方保留历史记录。
+
 统一口径：nuScenes val，6019 samples；训练使用 16 GPU × 16 samples/GPU；评测使用 2 GPU × 16 samples/GPU；评测权重均为普通 `last.ckpt`，不是 EMA `.pth`。
 
 | 实验 | 实验信息 | Changelog | Output | 效果 |
