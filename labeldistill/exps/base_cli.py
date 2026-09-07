@@ -1,11 +1,14 @@
 #LabelDistill/labeldistill/exps/base_cli.py
 import os
-from datetime import datetime
+from pathlib import Path
 from argparse import ArgumentParser
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 from labeldistill.callbacks.ema import EMACallback
+from labeldistill.config.run import (
+    RUN_ID_ENV, dated_directory, generate_run_id, validate_run_id,
+)
 from labeldistill.utils.torch_dist import all_gather_object, get_rank, synchronize
 from .nuscenes.base_exp import LabelDistillModel
 
@@ -54,25 +57,42 @@ def run_cli(model_class=LabelDistillModel,
                                default=0,
                                help='seed for initializing training.')
     parent_parser.add_argument('--ckpt_path', type=str)
+    parent_parser.add_argument('--run_id', type=str)
     parser = LabelDistillModel.add_model_specific_args(parent_parser)
     args = parser.parse_args()
 
     if args.seed is not None:
         pl.seed_everything(args.seed)
 
+    resume_directory = (
+        Path(args.ckpt_path).expanduser().resolve().parent
+        if args.ckpt_path and not (args.evaluate or args.predict) else None
+    )
+    checkpoint_root = Path(CHECKPOINT_ROOT).expanduser().resolve()
+    if resume_directory is not None and resume_directory.is_relative_to(checkpoint_root):
+        checkpoint_dir = resume_directory
+    else:
+        run_id = args.run_id or os.environ.get(RUN_ID_ENV) or generate_run_id()
+        validate_run_id(run_id)
+        os.environ[RUN_ID_ENV] = run_id
+        checkpoint_dir = checkpoint_root / dated_directory(exp_name, run_id)
+        if not (args.evaluate or args.predict):
+            args.default_root_dir = dated_directory(args.default_root_dir, run_id)
+
     model = model_class(**vars(args))
 
     # 配置checkpoint回调，保留最后3个epoch的checkpoint
     checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(args.default_root_dir, 'checkpoints'),
+        dirpath=str(checkpoint_dir),
         filename='epoch_{epoch:02d}',
         save_top_k=3,
-        save_last=True,
+        save_last='link',
+        enable_version_counter=False,
         monitor='epoch',
         mode='max',
         every_n_epochs=1,
         save_on_train_epoch_end=True,
-auto_insert_metric_name=False,
+        auto_insert_metric_name=False,
     )
 
     # PL 2.x precision mapping. BF16 remains available for models whose full
@@ -112,7 +132,9 @@ auto_insert_metric_name=False,
     if use_ema:
         train_dataloader = model.train_dataloader()
         ema_callback = EMACallback(
-            len(train_dataloader.dataset) * args.max_epochs)
+            len(train_dataloader.dataset) * args.max_epochs,
+            dirpath=checkpoint_dir / 'ema', keep_last=3,
+        )
         trainer = pl.Trainer(
             **trainer_kwargs,
             callbacks=[ema_callback, checkpoint_callback]
