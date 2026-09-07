@@ -40,3 +40,10 @@ mmdetection3d/
 
 # 日志
 *.log
+
+# Local shared docs/tests and auxiliary tools; entry points stay versioned
+/docs/
+/tests/
+/tools/*
+!/tools/train.py
+!/tools/evaluate.py
