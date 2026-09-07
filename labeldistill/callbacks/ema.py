@@ -2,6 +2,9 @@
 # Copyright (c) 2014-2021 Megvii Inc. All rights reserved.
 import math
 import os
+from pathlib import Path
+import re
+import tempfile
 from copy import deepcopy
 
 import torch
@@ -66,9 +69,15 @@ class ModelEMA:
 
 class EMACallback(Callback):
 
-    def __init__(self, len_updates) -> None:
+    def __init__(self, len_updates, *, dirpath=None, keep_last=3,
+                 every_n_epochs=1) -> None:
         super().__init__()
         self.len_updates = len_updates
+        if keep_last < 1 or every_n_epochs < 1:
+            raise ValueError('EMA retention and save interval must be positive')
+        self.dirpath = Path(dirpath) if dirpath is not None else None
+        self.keep_last = keep_last
+        self.every_n_epochs = every_n_epochs
 
     def on_fit_start(self, trainer, pl_module):
         # Todo (@lizeming@megvii.com): delete manually specified device
@@ -100,6 +109,18 @@ class EMACallback(Callback):
         trainer.ema_model.update(trainer, pl_module.model)
 
     def on_train_epoch_end(self, trainer, pl_module) -> None:
+        # DDP ranks must never write or prune the same archive concurrently.
+        if not trainer.is_global_zero:
+            return
+        if (trainer.current_epoch + 1) % self.every_n_epochs:
+            return
+        directory = self.dirpath
+        if directory is None:
+            checkpoint_dir = getattr(trainer.checkpoint_callback, 'dirpath', None)
+            if checkpoint_dir is None:
+                raise RuntimeError('EMA requires an explicit checkpoint directory')
+            directory = Path(checkpoint_dir) / 'ema'
+        directory.mkdir(parents=True, exist_ok=True)
         state_dict = trainer.ema_model.ema.state_dict()
         state_dict_keys = list(state_dict.keys())
         # TODO: Change to more elegant way.
@@ -113,6 +134,29 @@ class EMACallback(Callback):
             'global_step': trainer.global_step,
             'state_dict': state_dict
         }
-        torch.save(
-            checkpoint,
-            os.path.join(trainer.log_dir, f'{trainer.current_epoch}.pth'))
+        destination = directory / f'epoch_{trainer.current_epoch:02d}.pth'
+        # Publish only complete archives. A failed write leaves the previous
+        # checkpoint and retention set intact; the temporary file is removed.
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                    dir=directory, prefix='.ema-', suffix='.tmp',
+                    delete=False) as stream:
+                temporary = Path(stream.name)
+                torch.save(checkpoint, stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, destination)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+
+        # Inspect disk on each successful save, so retention also works after
+        # restarting training. Never prune unrelated files or symlinks.
+        archives = []
+        for path in directory.iterdir():
+            match = re.fullmatch(r'epoch_(\d+)\.pth', path.name)
+            if match and path.is_file() and not path.is_symlink():
+                archives.append((int(match.group(1)), path))
+        for _, path in sorted(archives)[:-self.keep_last]:
+            path.unlink()
