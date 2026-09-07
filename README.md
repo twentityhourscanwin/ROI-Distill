@@ -1,5 +1,7 @@
 # ROI-Distill
 
+当前开发分支为 `dev`。几何分支的 C1/R1/S1 已完成评测；问题诊断、几何剥离和结果分析见 [Adaptive B2 几何研究记录](docs/SPEED_RADIUS_ABLATION.md)。实验结果不表示对应算法已经合入 dev。
+
 ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏研究仓库。学生为多帧 BEVDepth，相同样本上的冻结 CenterPoint 作为训练教师；实验由 YAML 配置驱动。
 
 ## 当前状态
@@ -9,6 +11,10 @@ ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏�
 - 当前开发代码已固化在 `dev` 集成分支；新的算法 idea 从 `dev` 切短期分支。
 
 ## 文档
+
+`docs/` 作为所有代码分支共用的本地文档目录，不纳入 Git 提交；切换分支时保留当前文档，不能用分支中的旧版本覆盖。规则及既有跟踪记录的迁移说明见 [Git 工作流](docs/README.md#git-工作流)。
+
+`tests/` 和 `tools/` 中的辅助脚本保留本地、不纳入提交；**`tools/train.py` 与 `tools/evaluate.py` 是例外，作为正式入口随代码分支跟踪和提交**。新环境使用其他本地辅助工具时需另行准备。
 
 - [当前实验结果](docs/VAL_RESULTS.md)：简洁结果表。
 - [实验详细记录](docs/EXPERIMENT_LEDGER.md)：配置、产物、完整指标和有效性。
