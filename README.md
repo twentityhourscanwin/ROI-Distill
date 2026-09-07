@@ -1,5 +1,7 @@
 # ROI-Distill
 
+`docs/` 作为所有代码分支共用的本地文档目录，不纳入 Git 提交；切换分支时保留当前文档。`tests/` 和 `tools/` 中的辅助脚本同样保留本地；`tools/train.py` 与 `tools/evaluate.py` 作为正式入口随代码分支跟踪和提交。新环境需要另行准备本地文档和辅助工具。
+
 ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏研究仓库。当前代码使用 YAML 驱动实验，学生为多帧 BEVDepth，相同样本上的冻结 CenterPoint 作为教师，并支持 proposal–GT 匹配、质量加权的特征蒸馏、响应蒸馏以及 ROI 几何消融。
 
 ## 当前状态
