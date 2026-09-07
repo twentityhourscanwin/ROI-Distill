@@ -12,6 +12,8 @@ ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏�
 
 ## 文档
 
+`docs/` 作为所有代码分支共用的本地文档目录，不纳入 Git 提交；切换分支时保留当前文档。`tests/` 和 `tools/` 中的辅助脚本同样保留本地；`tools/train.py` 与 `tools/evaluate.py` 作为正式入口随代码分支跟踪和提交。新环境需要另行准备本地文档和辅助工具。
+
 - [当前实验结果](docs/VAL_RESULTS.md)：简洁结果表。
 - [实验详细记录](docs/EXPERIMENT_LEDGER.md)：配置、产物、完整指标和有效性。
 - [Idea 迭代](docs/IDEA_LOG.md)：根据结果分析问题并规划下一步。
