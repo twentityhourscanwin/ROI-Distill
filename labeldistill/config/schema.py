@@ -30,6 +30,7 @@ class RuntimeConfig:
     find_unused_parameters: bool = True
     ddp_static_graph: bool = False
     output_dir: str = MISSING
+    run_id: Optional[str] = None
     resume_from: Optional[str] = None
 
 

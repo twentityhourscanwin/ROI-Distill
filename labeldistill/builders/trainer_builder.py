@@ -1,13 +1,12 @@
 """Build PyTorch Lightning runtime objects from resolved config."""
 
 from datetime import timedelta
-from pathlib import Path
-
 import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 
 from labeldistill.callbacks.ema import EMACallback
+from labeldistill.config.run import checkpoint_directory
 
 
 def build_trainer(config, experiment, *, for_evaluation=False):
@@ -19,15 +18,13 @@ def build_trainer(config, experiment, *, for_evaluation=False):
         '32': 32,
         '64': 64,
     }
-    checkpoint_dir = (
-        Path(config.checkpoint.root_dir).expanduser()
-        / config.experiment.name
-    )
+    checkpoint_dir = checkpoint_directory(config)
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
         filename='epoch_{epoch:02d}',
         save_top_k=config.checkpoint.save_top_k,
-        save_last=config.checkpoint.save_last,
+        save_last='link' if config.checkpoint.save_last else False,
+        enable_version_counter=False,
         monitor='epoch',
         mode='max',
         every_n_epochs=config.checkpoint.every_n_epochs,
@@ -39,7 +36,12 @@ def build_trainer(config, experiment, *, for_evaluation=False):
         # Preserve the legacy callback's update-count convention until EMA is
         # independently migrated and numerically frozen.
         total_samples = len(experiment.train_dataloader().dataset)
-        callbacks.insert(0, EMACallback(total_samples * config.runtime.max_epochs))
+        callbacks.insert(0, EMACallback(
+            total_samples * config.runtime.max_epochs,
+            dirpath=checkpoint_dir / 'ema',
+            keep_last=3,
+            every_n_epochs=config.checkpoint.every_n_epochs,
+        ))
 
     world_size = config.runtime.gpus * config.runtime.num_nodes
     strategy = (
