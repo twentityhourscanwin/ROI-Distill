@@ -30,6 +30,7 @@ _J4_CRITICAL_SOURCES = (
     "labeldistill/layers/heads/kd_head.py",
     "labeldistill/refine_head/target_assigner/roi_distill.py",
     "labeldistill/refine_head/target_assigner/adaptive_gt_scaler_v3.py",
+    "labeldistill/refine_head/target_assigner/velocity_only_half_scaler.py",
     "labeldistill/refine_head/target_assigner/quality_aware_mask_v3.py",
     "labeldistill/refine_head/target_assigner/raw_gaussian_feature_loss.py",
     "labeldistill/config/schema.py",

@@ -1,0 +1,14 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: gaussian_radius_floor1_no_cap
+  description: >-
+    B1 with integer Gaussian radius floored at one cell and no upper cap.
+    Preserve original GT geometry, matching, teacher value and response KD.
+
+region:
+  mask:
+    min_radius: 1
+
+runtime:
+  output_dir: outputs/gaussian_radius_floor1_no_cap

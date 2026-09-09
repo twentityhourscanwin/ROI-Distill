@@ -1,0 +1,19 @@
+_base_: gaussian_radius_floor1_no_cap.yaml
+
+experiment:
+  name: gaussian_radius_floor1_no_cap_speed_half
+  description: >-
+    Uncapped floor-one Gaussian with fixed-center half-displacement expansion.
+    Paired with gaussian_radius_floor1_no_cap to isolate the velocity increment.
+
+region:
+  scaler:
+    type: velocity_only_half
+    enabled: true
+    displacement_fraction: 0.5
+    past_time_seconds: 0.25
+    future_time_seconds: 0.20
+    center_mode: fixed
+
+runtime:
+  output_dir: outputs/gaussian_radius_floor1_no_cap_speed_half

@@ -21,7 +21,7 @@ def build_trainer(config, experiment, *, for_evaluation=False):
     checkpoint_dir = checkpoint_directory(config)
     checkpoint_callback = ModelCheckpoint(
         dirpath=str(checkpoint_dir),
-        filename='epoch_{epoch:02d}',
+        filename=checkpoint_dir.name + '__epoch_{epoch:02d}',
         save_top_k=config.checkpoint.save_top_k,
         save_last='link' if config.checkpoint.save_last else False,
         enable_version_counter=False,
@@ -41,6 +41,7 @@ def build_trainer(config, experiment, *, for_evaluation=False):
             dirpath=checkpoint_dir / 'ema',
             keep_last=3,
             every_n_epochs=config.checkpoint.every_n_epochs,
+            filename_prefix=checkpoint_dir.name,
         ))
 
     world_size = config.runtime.gpus * config.runtime.num_nodes

@@ -153,6 +153,10 @@ class ScalerConfig:
     mu: float = 0.15
     velocity_scale: float = 0.2
     max_distance: float = 50.0
+    displacement_fraction: float = 0.5
+    past_time_seconds: float = 0.25
+    future_time_seconds: float = 0.20
+    center_mode: str = "fixed"
 
 
 @dataclass

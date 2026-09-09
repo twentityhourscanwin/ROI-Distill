@@ -35,6 +35,11 @@ def sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
 
 def _validate_experiment_name(config: DictConfig, errors: List[str]) -> None:
     name = config.experiment.name
+    _require(
+        bool(re.fullmatch(r'[A-Za-z0-9_-]+', name)),
+        'experiment.name must contain only letters, digits, _ or -',
+        errors,
+    )
     match = re.fullmatch(r"j[1-5]_wl(\d+)_wh(\d+)", name)
     if match is None:
         return
@@ -150,7 +155,13 @@ def validate_config(
             config.matching.selection,
             {"highest_score", "score_first_nearest_unmatched_gt"},
         ),
-        "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
+        "region.scaler.type": (
+            config.region.scaler.type,
+            {"adaptive_gt_scaler_v3", "velocity_only_half"},
+        ),
+        "region.scaler.center_mode": (
+            config.region.scaler.center_mode, {"fixed", "temporal_midpoint"},
+        ),
         "region.value.type": (
             config.region.value.type,
             {"legacy_discrete", "normalized_squared_margin", "uniform_gt"},
@@ -224,6 +235,26 @@ def validate_config(
         "region.scaler.max_distance must be positive",
         errors,
     )
+
+    _require(
+        0 < config.region.scaler.displacement_fraction <= 1,
+        "region.scaler.displacement_fraction must be in (0, 1]", errors)
+    for field in ("past_time_seconds", "future_time_seconds"):
+        value = config.region.scaler[field]
+        _require(
+            math.isfinite(value) and value >= 0,
+            f"region.scaler.{field} must be finite and non-negative", errors)
+    _require(
+        config.region.scaler.past_time_seconds
+        + config.region.scaler.future_time_seconds > 0,
+        "velocity scaler time span must be positive", errors)
+
+    if config.region.scaler.enabled and config.region.scaler.type == "velocity_only_half":
+        _require(
+            config.matching.type == "scale_conditioned_center_distance",
+            "velocity_only_half requires scale_conditioned_center_distance matching",
+            errors,
+        )
 
     class_names = list(config.classes.names)
     flattened_tasks = [name for task in config.classes.tasks for name in task]

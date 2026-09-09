@@ -70,7 +70,7 @@ class ModelEMA:
 class EMACallback(Callback):
 
     def __init__(self, len_updates, *, dirpath=None, keep_last=3,
-                 every_n_epochs=1) -> None:
+                 every_n_epochs=1, filename_prefix='') -> None:
         super().__init__()
         self.len_updates = len_updates
         if keep_last < 1 or every_n_epochs < 1:
@@ -78,6 +78,9 @@ class EMACallback(Callback):
         self.dirpath = Path(dirpath) if dirpath is not None else None
         self.keep_last = keep_last
         self.every_n_epochs = every_n_epochs
+        if filename_prefix and not re.fullmatch(r'[A-Za-z0-9_-]+', filename_prefix):
+            raise ValueError('EMA filename_prefix must contain only letters, digits, _ or -')
+        self.filename_prefix = filename_prefix
 
     def on_fit_start(self, trainer, pl_module):
         # Todo (@lizeming@megvii.com): delete manually specified device
@@ -134,7 +137,8 @@ class EMACallback(Callback):
             'global_step': trainer.global_step,
             'state_dict': state_dict
         }
-        destination = directory / f'epoch_{trainer.current_epoch:02d}.pth'
+        stem = f'{self.filename_prefix}__ema_epoch_' if self.filename_prefix else 'epoch_'
+        destination = directory / f'{stem}{trainer.current_epoch:02d}.pth'
         # Publish only complete archives. A failed write leaves the previous
         # checkpoint and retention set intact; the temporary file is removed.
         temporary = None
@@ -155,7 +159,7 @@ class EMACallback(Callback):
         # restarting training. Never prune unrelated files or symlinks.
         archives = []
         for path in directory.iterdir():
-            match = re.fullmatch(r'epoch_(\d+)\.pth', path.name)
+            match = re.fullmatch(re.escape(stem) + r'(\d+)\.pth', path.name)
             if match and path.is_file() and not path.is_symlink():
                 archives.append((int(match.group(1)), path))
         for _, path in sorted(archives)[:-self.keep_last]:
