@@ -1,0 +1,80 @@
+# ROI-Distill 项目工作约定
+
+本项目研究 nuScenes 相机–LiDAR 特征蒸馏。遵循本机全局 `C:\Users\wujie\.codex\AGENTS.md`，并在涉及 Python、SSH 或 shell 时先读取对应的全局 playbook。本文补充本项目的实际环境与协作约定。
+
+## 本地开发与 DSW 运行
+
+| 项目 | 固定位置或入口 |
+| --- | --- |
+| 本地代码管理仓库 | `C:\Users\wujie\Documents\code\distill_x` |
+| 上游项目 | `https://github.com/twentityhourscanwin/ROI-Distill.git`，SSH 等价地址为 `git@github.com:twentityhourscanwin/ROI-Distill.git` |
+| DSW SSH 别名 | `dsw-gqp-onwer-PPU`，身份与连接参数来自本机 SSH config |
+| DSW 唯一执行仓库 | `/mnt/workspace/guqiupeng/code/ROI_LABEL_DISTILL` |
+| DSW Python 入口 | `/usr/local/bin/python`；运行前核对实际解释器与依赖，不假定 SSH 继承交互式 shell 初始化 |
+| 正式训练入口 | `tools/train.py` |
+| 正式评测入口 | `tools/evaluate.py` |
+| 实验配置 | `configs/experiments/*.yaml` |
+| 训练输出 | DSW 仓库下 `outputs/<experiment>_<run_id>/` |
+| 权重根目录 | `/mnt/nas_data/guqiupeng/checkpoint_nes/` |
+| 评测输出根目录 | DSW 仓库下 `outputs/evaluation/` |
+
+- 本地是代码管理事实来源：在本地编辑、查看 diff、管理分支、提交和推送，用户在 VS Code 打开上述本地仓库查看改动。
+- DSW 提供依赖、数据和加速设备，用于测试、训练、推理和评测。不得在本地运行项目 Python、pytest、训练或推理；本地允许 Git、文本检索、diff 检查及文件哈希等静态操作。
+- 从 DSW 发现的有效修复必须在本地落实并重新同步验证；不得只修改远端代码就宣布完成。
+- 数据、教师权重、第三方编译库、虚拟环境、缓存和大体积训练产物留在 DSW，不能为了本地阅读代码而复制这些目录。
+- 本次接入基线为 `dev` 的 `4df6b4281694411df3c8bf6485f0e6fa78a6b80d`（2026-09-09 核对）。这是初始化记录，不是以后运行时的固定版本；每次都重新核对两端状态。
+
+## 单一仓库与分支管理
+
+- 本项目按用户约定不自动创建额外 clone、worktree 或候选源码目录；本地使用上述仓库，DSW 使用上述唯一执行仓库。工作流采用 `--no-worktree` 的等价安排。
+- 方法或代码行为存在差异时，从核对过的 `dev` 新建 `codex/<idea>` 分支；同一方法内部的参数消融用 YAML、commit 和 experiment tag 管理。
+- 不为单纯参数组合创建多个方法分支，不把不同方法堆入同一分支再要求用户通过多功能开关区分。
+- 不自动把实验分支合入 `dev` 或 `main`。分支保留用于方法对照，集成另按用户认可的计划执行。
+- DSW 有依赖该目录的训练、评测、测试或排队任务时，禁止 checkout、同步覆盖或修改其源码与配置。任务仍在运行时不得假定 Python 已加载全部文件；等相关任务结束再切换。
+- 切换到历史提交前，检查其是否跟踪当前共享目录；先保护共享文件，不得用历史版本覆盖它们。
+
+## 开发与验证流程
+
+```text
+明确需求与对照 → 记录 PROMPT/PLAN 并确认 → 本地修改
+→ 同步未提交候选到 DSW → DSW 验证 → review-loop → 本地 commit
+→ 核对正式提交与候选一致 → 固定实验版本 → DSW 正式运行 → 记录结果
+```
+
+- 按全局规则用 issue 跟踪开发需求；按 `docs/<轮次数字>-<中文描述>/` 保存中文 `PROMPT.md`、`PLAN.md`、`SUMMARY.md` 和必要的审查记录。普通只读分析不自动演变为代码开发或新训练。
+- 实验计划必须写清假设、基线、唯一被测因素或明确的组合改动、配置、验证方法和判断标准；关键假设失效时先报告证据与可选方案。
+- 有明确输入输出契约的代码先写测试，再在 DSW 验证红、绿；配置改动至少检查配置解析及对应行为。按改动范围验证，不因本次修改重跑无关完整训练。
+- 运行相关改动先在 DSW 验证未提交候选，再在本地提交；不要创建临时 commit 只为同步。纯文档、指令文件的运行测试记为不适用，但指令文件仍须独立上下文 review。
+- review-loop 使用当前平台实际可用的委派能力，并遵循全局审查与降级规则。中文提交附 `Co-authored-by: OpenAI Codex <noreply@openai.com>`。
+- 审查修复或验证后的代码改动，会使受影响的验证证据失效，需重新同步验证。
+
+## 源码同步约定
+
+目前未提供本项目专用的一键同步脚本。Agent 按以下步骤操作，不得照抄其他项目的同步脚本、环境名或快照路径。
+
+1. 检查两端仓库根目录、分支、HEAD、暂存/未暂存差异、未跟踪及相关忽略文件；检查 DSW 是否有使用该目录的任务。存在来源不明的远端修改时，先比对并保留，不能覆盖。
+2. 未提交候选必须建立在两端相同的基线 commit 上。本地用包含新文件、删除、重命名和二进制变化的 Git patch 表达版本化改动；新文件须明确纳入 patch，不能只导出遗漏新文件的普通 unstaged diff。先在 DSW 做 `git apply --check`，通过后再应用。
+3. 保存基线 commit、候选 patch 的 SHA-256、变更文件清单及两端文件 SHA-256；包含删除状态和文件模式。同步忽略的测试或辅助文件时单列清单与哈希，不能将它们冒充 commit 自带内容。
+4. 已存在上一轮候选时，先核对其与已记录候选一致，再做定向撤回或增量更新；不使用 `reset --hard`、`git clean`、整目录覆盖或带删除的镜像同步来省略检查。
+5. 验证通过并本地提交后，通过上游 Git 或从本地生成的 Git bundle 传递正式 commit。远端仍有候选差异时先核对并定向撤回，清洁后再切换到该 commit，最后重新比对已验证文件。不得对脏工作区盲目 pull/checkout。
+6. 每次运行使用仓库根目录作为工作目录，明确配置和覆盖参数，并设置 `PYTHONPATH` 包含该根目录。只有读取退出状态、日志和必要产物后才能判断成功。
+
+以上是操作契约，不表示已经实现或验证了一键同步工具；若后续开发同步脚本，需单独规划并覆盖失败、脏工作区、新文件和删除等情形。
+
+## 共享文档、测试与辅助工具
+
+沿用现有 README 和 `docs/README.md` 中的项目约定：
+
+- `docs/`、`tests/` 与辅助 `tools/` 文件跨分支共用、不纳入 Git；`tools/train.py` 与 `tools/evaluate.py` 是版本化正式入口。不得为了满足全局文档模板而强制把共享目录提交进去。
+- `AGENTS.md` 属于必要的仓库规则文件，纳入 Git。切换不包含此文件的旧分支前，先读取并保存当前项目约定，不能因 checkout 删除文件而丢失已知约束。
+- 初始化时已从 DSW 补齐现有共享 Markdown 文档、Python 测试和辅助脚本。此后这些文件也在本地维护；同步到 DSW 前先比对双方内容，不自动反向覆盖本地新内容。
+- 共享文件被 Git 忽略不代表它们可丢弃。新环境除 clone 外还需单独恢复；迁移、同步和历史分支切换前保留仓库外备份，记录备份位置。
+- 保留已有研究记录的分工：`docs/VAL_RESULTS.md` 保存指标，`docs/EXPERIMENT_LEDGER.md` 保存实验详情，`docs/SPEED_RADIUS_ABLATION.md` 保存已有几何研究；不重复维护另一份结果总表。
+
+## 实验与交付记录
+
+- 后续 feature KD 采用圆形 Gaussian，实际键为 `region.mask.type=per_gt_gaussian`；其他机制需以当前分支代码与 resolved config 为准。不能把某实验分支的实现当成已合入 `dev`。
+- 正式实验使用干净 commit/tag，并记录实际配置及命令覆盖、数据和教师权重身份、seed、设备数量、每卡 batch、累积梯度和 global batch。不能只凭分支名复现运行。
+- 评测记录 checkpoint 绝对路径，区分普通 `last.ckpt` 与 EMA。对照保持 split、样本量、评测设置一致；设备和 batch 按当次用户要求设置，不硬编码为历史训练的 16 卡。
+- `SUMMARY.md` 包含背景、方案、局限与后续 TODO；记录实际命令、代码/配置版本或哈希、输入、输出、退出状态、指标及审查结果。区分本次实际执行记录与下次可复用入口。
+- 交付提供本地分支相对基线的 Git diff 或 VS Code Review 入口，并说明配置、依赖、数据和输出方面的影响。一次训练的趋势不能直接写成已证实的机制结论。
