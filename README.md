@@ -1,13 +1,13 @@
 # ROI-Distill
 
-当前开发分支为 `dev`。几何分支的 C1/R1/S1 已完成评测；问题诊断、几何剥离和结果分析见 [Adaptive B2 几何研究记录](docs/SPEED_RADIUS_ABLATION.md)。实验结果不表示对应算法已经合入 dev。
+当前开发分支为 `dev`。几何分支的 C1/R1/S1 已完成评测；问题诊断、几何剥离和结果分析见 [中心与半径对比推理](docs/2026-09-05/01-中心与半径几何消融/对比推理.md)。实验结果不表示对应算法已经合入 dev。
 
 ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏研究仓库。学生为多帧 BEVDepth，相同样本上的冻结 CenterPoint 作为训练教师；实验由 YAML 配置驱动。
 
 ## 当前状态
 
 - 固定参考 B1：mAP `0.3881`，NDS `0.5047`。
-- 领先候选 B2：mAP `0.3922`，NDS `0.5069`；等待 scaler 机制检查和多 seed 验证。
+- 领先候选 Adaptive B2：mAP `0.3922`，NDS `0.5069`；已有离线 mask 审计，收益机制归因与多 seed 验证尚未完成。
 - 当前开发代码已固化在 `dev` 集成分支；新的算法 idea 从 `dev` 切短期分支。
 
 ## 文档
@@ -16,22 +16,14 @@ ROI-Distill 是一个面向 nuScenes 3D 检测的相机–LiDAR 跨模态蒸馏�
 
 `tests/` 和 `tools/` 中的辅助脚本保留本地、不纳入提交；**`tools/train.py` 与 `tools/evaluate.py` 是例外，作为正式入口随代码分支跟踪和提交**。新环境使用其他本地辅助工具时需另行准备。
 
-- [当前实验结果](docs/VAL_RESULTS.md)：简洁结果表。
-- [实验详细记录](docs/EXPERIMENT_LEDGER.md)：配置、产物、完整指标和有效性。
-- [Idea 迭代](docs/IDEA_LOG.md)：根据结果分析问题并规划下一步。
-- [开发与运行说明](docs/README.md)：训练命令、当前 dev 设置和 Git 工作流。
+- [研究文档首页](docs/README.md)：按日期查实验设计、实验事实与对比推理。
+- [开发与运行说明](docs/运行说明.md)：本地与 DSW 执行位置、配置和记录要求。
+- [接续说明](docs/交接说明.md)：当前研究重点与接入边界。
+- [历史资料](docs/历史资料/README.md)：整理前原文，只读追溯。
 
 ## 快速开始
 
-```bash
-pip install -r requirements.txt
-pip install -e .
-
-python tools/train.py \
-  --config configs/experiments/b1_teacher_value_no_scale.yaml
-```
-
-完整训练与评测命令见 [开发与运行说明](docs/README.md)。
+先阅读 [项目工作约定](AGENTS.md) 和 [开发与运行说明](docs/运行说明.md)。本地管理代码，项目依赖、测试、训练和评测在已登记的 DSW 环境执行。正式运行前确认实验设计并核对版本、配置和任务占用。
 
 ## 仓库结构
 
@@ -41,7 +33,7 @@ configs/experiments/   实验入口配置
 labeldistill/          数据、模型、蒸馏与训练实现
 tests/                 配置和算法合同测试
 tools/                 训练、评测和分析工具
-docs/                  结果、实验、idea 与开发说明
+docs/                  按日期组织的设计、事实、推理与历史资料
 ```
 
 数据、权重和训练输出不提交到 Git；正式实验必须由干净 commit/tag、resolved config、数据/教师哈希和产物路径共同标识。
