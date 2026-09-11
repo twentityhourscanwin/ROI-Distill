@@ -1,0 +1,14 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b1_center_score_blend
+  description: >-
+    保持 B1 的 GT 尺寸、匹配、q 和双层蒸馏，按 proposal score 融合 proposal 与 GT 中心绘制 Gaussian。
+
+region:
+  scaler:
+    type: score_center_only
+    enabled: true
+
+runtime:
+  output_dir: outputs/b1_center_score_blend

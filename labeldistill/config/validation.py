@@ -150,7 +150,10 @@ def validate_config(
             config.matching.selection,
             {"highest_score", "score_first_nearest_unmatched_gt"},
         ),
-        "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
+        "region.scaler.type": (
+            config.region.scaler.type,
+            {"adaptive_gt_scaler_v3", "score_center_only"},
+        ),
         "region.value.type": (
             config.region.value.type,
             {"legacy_discrete", "normalized_squared_margin", "uniform_gt"},
@@ -188,6 +191,14 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
+    if config.region.scaler.enabled and config.region.scaler.type == "score_center_only":
+        _require(
+            config.matching.type == "scale_conditioned_center_distance"
+            and config.region.value.type == "normalized_squared_margin"
+            and config.region.mask.type == "per_gt_gaussian",
+            "score_center_only requires B1 matching/value and per_gt_gaussian",
+            errors,
+        )
     w_low = config.region.mask.w_low
     w_high = config.region.mask.w_high
     if config.region.mask.type == "quality_aware_mask_v3":
