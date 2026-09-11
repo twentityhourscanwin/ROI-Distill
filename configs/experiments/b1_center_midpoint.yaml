@@ -1,0 +1,14 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b1_center_midpoint
+  description: >-
+    保持 B1 的 GT 尺寸、匹配、q 和双层蒸馏，用 GT 与匹配 proposal 的中心均值绘制 Gaussian。
+
+region:
+  scaler:
+    type: midpoint_center_only
+    enabled: true
+
+runtime:
+  output_dir: outputs/b1_center_midpoint
