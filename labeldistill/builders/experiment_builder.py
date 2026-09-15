@@ -13,6 +13,9 @@ from labeldistill.refine_head.target_assigner.adaptive_gt_scaler_v3 import (
 from labeldistill.refine_head.target_assigner.proposal_center_shift import (
     ProposalCenterShift,
 )
+from labeldistill.refine_head.target_assigner.proposal_center_motion_expansion import (
+    ProposalCenterMotionExpansion,
+)
 from labeldistill.refine_head.target_assigner.quality_aware_mask_v3 import (
     QualityAwareMaskGeneratorV3,
 )
@@ -81,6 +84,10 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
     )
     if config.region.scaler.type == 'proposal_center_only':
         scaler = ProposalCenterShift()
+    elif config.region.scaler.type == 'proposal_center_motion':
+        scaler = ProposalCenterMotionExpansion(
+            motion_alpha=config.region.scaler.motion_alpha,
+        )
     else:
         scaler = AdaptiveGTScalerV3(
             mu=config.region.scaler.mu,

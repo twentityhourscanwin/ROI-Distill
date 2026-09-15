@@ -152,7 +152,11 @@ def validate_config(
         ),
         "region.scaler.type": (
             config.region.scaler.type,
-            {"adaptive_gt_scaler_v3", "proposal_center_only"},
+            {
+                "adaptive_gt_scaler_v3",
+                "proposal_center_only",
+                "proposal_center_motion",
+            },
         ),
         "region.value.type": (
             config.region.value.type,
@@ -191,12 +195,30 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
-    if config.region.scaler.enabled and config.region.scaler.type == "proposal_center_only":
+    if config.region.scaler.enabled and config.region.scaler.type in {
+        "proposal_center_only",
+        "proposal_center_motion",
+    }:
         _require(
             config.matching.type == "scale_conditioned_center_distance"
             and config.region.value.type == "normalized_squared_margin"
             and config.region.mask.type == "per_gt_gaussian",
-            "proposal_center_only requires B1 matching/value and per_gt_gaussian",
+            "Proposal-centered scaling requires B1 matching/value and per_gt_gaussian",
+            errors,
+        )
+    if config.region.scaler.type == "proposal_center_motion":
+        motion_alpha = config.region.scaler.motion_alpha
+        _require(
+            motion_alpha is not None
+            and math.isfinite(motion_alpha)
+            and 0 < motion_alpha <= 1,
+            "proposal_center_motion requires finite motion_alpha in (0, 1]",
+            errors,
+        )
+    else:
+        _require(
+            config.region.scaler.motion_alpha is None,
+            "motion_alpha is only valid for proposal_center_motion",
             errors,
         )
     w_low = config.region.mask.w_low

@@ -395,6 +395,39 @@ class NuscDetDataset(Dataset):
         lidar_idx = np.arange(10)
         return lidar_idx
 
+    @staticmethod
+    def _selected_lidar_time_span_s(lidar_info_sweeps, lidar_idx):
+        """Return the timestamp span of selected entries that really exist."""
+        selected = [int(index) for index in lidar_idx]
+        if not selected or any(index < 0 for index in selected):
+            raise ValueError("LiDAR sweep indices must be non-empty and non-negative")
+        actual = [
+            lidar_info_sweeps[index]
+            for index in selected
+            if index < len(lidar_info_sweeps)
+        ]
+        if not actual:
+            raise ValueError("No selected LiDAR sweep exists")
+        try:
+            timestamps = [
+                int(entry["LIDAR_TOP"]["timestamp"])
+                for entry in actual
+            ]
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Selected LiDAR sweep lacks a valid timestamp") from exc
+        return float(max(timestamps) - min(timestamps)) / 1e6
+
+    def get_lidar_points_and_time_span(self, lidar_infos, bda_rot):
+        """Use one selection for both teacher points and motion time span."""
+        if len(lidar_infos) != 1:
+            raise ValueError("J4 expects one LiDAR key frame per sample")
+        lidar_idx = self.sample_lidar_augmentation()
+        time_span_s = self._selected_lidar_time_span_s(
+            lidar_infos[0], lidar_idx
+        )
+        points = self.get_lidar_points(lidar_infos, bda_rot, lidar_idx)
+        return points, time_span_s
+
     def get_lidar_depth(self, lidar_points, img, lidar_info, cam_info):
         lidar_calibrated_sensor = lidar_info['LIDAR_TOP']['calibrated_sensor']
         lidar_ego_pose = lidar_info['LIDAR_TOP']['ego_pose']
@@ -802,7 +835,11 @@ class NuscDetDataset(Dataset):
         ]
 
         if self.return_lidar:
-            ret_list.append(self.get_lidar_points(lidar_infos, bda_rot, self.sample_lidar_augmentation()))
+            lidar_points, lidar_time_span_s = self.get_lidar_points_and_time_span(
+                lidar_infos, bda_rot
+            )
+            img_metas["lidar_time_span_s"] = lidar_time_span_s
+            ret_list.append(lidar_points)
 
         if self.return_depth:
             ret_list.append(image_data_list[7])

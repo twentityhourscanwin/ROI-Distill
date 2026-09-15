@@ -153,6 +153,7 @@ class ScalerConfig:
     mu: float = 0.15
     velocity_scale: float = 0.2
     max_distance: float = 50.0
+    motion_alpha: Optional[float] = None
 
 
 @dataclass

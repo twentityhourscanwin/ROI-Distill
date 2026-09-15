@@ -1,0 +1,19 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_proposal_motion_full
+  description: >-
+    Proposal-center B1 with full motion-span box expansion. Preserve the
+    production circular Gaussian radius floor, max merge and bilinear
+    multi-level mask path.
+
+region:
+  scaler:
+    type: proposal_center_motion
+    enabled: true
+    motion_alpha: 1.0
+  mask:
+    min_radius: 2
+
+runtime:
+  output_dir: outputs/b1_center_proposal_motion_full

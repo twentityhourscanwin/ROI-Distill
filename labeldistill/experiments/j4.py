@@ -1,6 +1,7 @@
 """Config-driven J4 Lightning experiment."""
 
 import math
+from collections.abc import Mapping
 from functools import partial
 from pathlib import Path
 
@@ -24,6 +25,22 @@ def _select_response_bbox_masks(scope, match_result):
                 'matched_gt bbox response KD requires a MatchResult')
         return match_result.matched_mask
     raise ValueError(f'Unsupported response bbox scope: {scope!r}')
+
+
+def _apply_geometry_scaler(scaler, match_result, img_metas):
+    """Apply ordinary scalers or provide required per-sample LiDAR spans."""
+    if not getattr(scaler, "requires_lidar_time_span", False):
+        return scaler.forward(match_result)
+    if len(img_metas) != len(match_result.gt_boxes):
+        raise ValueError("img_metas count must equal MatchResult batch size")
+    time_spans_s = []
+    for metadata in img_metas:
+        if not isinstance(metadata, Mapping) or "lidar_time_span_s" not in metadata:
+            raise ValueError(
+                "proposal motion expansion requires lidar_time_span_s metadata"
+            )
+        time_spans_s.append(metadata["lidar_time_span_s"])
+    return scaler.forward(match_result, time_spans_s=time_spans_s)
 
 
 def _linear_warmup_multistep_lambda(
@@ -144,7 +161,7 @@ class J4Experiment(BaseExperiment):
             model, torch.nn.parallel.DistributedDataParallel) else model
 
     def training_step(self, batch, batch_idx=None):
-        (sweep_imgs, mats, _, _, gt_boxes, gt_labels,
+        (sweep_imgs, mats, _, img_metas, gt_boxes, gt_labels,
          lidar_pts, depth_labels) = batch
         target_model = self._call_target(self.model)
         bev_mask, bev_box, bev_label, targets = target_model.get_targets(
@@ -161,14 +178,18 @@ class J4Experiment(BaseExperiment):
                 teacher.proposals, gt_boxes, gt_labels,
                 bda_mats=mats.get('bda_mat'))
             if self.scaler_enabled:
-                match_result = self.change_gt.forward(match_result)
+                match_result = _apply_geometry_scaler(
+                    self.change_gt, match_result, img_metas
+                )
         elif self.feature_mask_type == 'gt_heatmap':
             bev_roi_mask = self.build_gt_heatmap_mask(targets[0])
         else:
             match_result = self.proposal_target_layer(
                 teacher.proposals, gt_boxes, gt_labels)
             if self.scaler_enabled:
-                match_result = self.change_gt.forward(match_result)
+                match_result = _apply_geometry_scaler(
+                    self.change_gt, match_result, img_metas
+                )
             bev_roi_mask = self.generate_bev_mask(match_result, len(gt_boxes))
 
         detection_loss, response_loss = target_model.response_loss(
