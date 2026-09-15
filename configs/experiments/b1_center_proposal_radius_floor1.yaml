@@ -1,0 +1,15 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_proposal_radius_floor1
+  description: >-
+    Proposal-center B1 with the circular Gaussian integer radius floored at
+    one cell; preserve original GT dimensions and the production max/bilinear
+    mask path.
+
+region:
+  mask:
+    min_radius: 1
+
+runtime:
+  output_dir: outputs/b1_center_proposal_radius_floor1
