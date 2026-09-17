@@ -144,6 +144,7 @@ class MatchingConfig:
     small_classes: List[str] = field(default_factory=list)
     large_classes: List[str] = field(default_factory=list)
     official_class_ranges: Dict[str, float] = field(default_factory=dict)
+    filter_by_official_range: bool = True
 
 
 @dataclass

@@ -76,6 +76,7 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
         small_classes=list(config.matching.small_classes),
         large_classes=list(config.matching.large_classes),
         official_class_ranges=official_class_ranges,
+        filter_by_official_range=config.matching.filter_by_official_range,
         point_cloud_range=list(config.geometry.point_cloud_range),
         value_type=config.region.value.type,
     )

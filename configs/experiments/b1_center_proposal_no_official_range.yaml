@@ -1,0 +1,13 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_proposal_no_official_range
+  description: >-
+    Proposal-center baseline without the nuScenes 30/40/50 m official-range
+    gate. BEV drawability and the exact-class 1/2 m match gates remain active.
+
+matching:
+  filter_by_official_range: false
+
+runtime:
+  output_dir: outputs/b1_center_proposal_no_official_range

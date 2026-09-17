@@ -32,6 +32,7 @@ matching:
     bicycle: 40.0
     pedestrian: 40.0
     traffic_cone: 30.0
+  filter_by_official_range: true
 
 distillation:
   feature_channels: [128, 256]

@@ -167,6 +167,7 @@ class ProposalTargetLayer(nn.Module):
                  matching_type='center_distance', strict_less_than=False,
                  trust_radius=None, small_classes=None, large_classes=None,
                  official_class_ranges=None, point_cloud_range=None,
+                 filter_by_official_range=True,
                  value_type='normalized_squared_margin'):
         super().__init__()
         # Kept only so old experiment configs can still construct this module.
@@ -212,6 +213,7 @@ class ProposalTargetLayer(nn.Module):
             raise ValueError(
                 'uniform_gt is only supported by scale-conditioned matching')
         self.value_type = value_type
+        self.filter_by_official_range = filter_by_official_range
 
         class_names = tuple(class_names or self.DEFAULT_CLASS_NAMES)
         class_groups = tuple(class_groups or self.DEFAULT_CLASS_GROUPS)
@@ -413,7 +415,7 @@ class ProposalTargetLayer(nn.Module):
         return scale
 
     def _effective_gt_mask(self, cur_gt, bda_scale):
-        """Select canonical-range GTs that can be represented on the BEV map."""
+        """Select drawable GTs, optionally limited to official class ranges."""
         num_gt = len(cur_gt)
         if num_gt == 0:
             return torch.zeros(0, dtype=torch.bool, device=cur_gt.device)
@@ -422,12 +424,16 @@ class ProposalTargetLayer(nn.Module):
         official_ranges = cur_gt.new_zeros((num_gt,))
         range_lookup = self._official_range_lookup.to(cur_gt.device)
         official_ranges[valid_class] = range_lookup[gt_classes[valid_class]]
-        canonical_radius = torch.linalg.vector_norm(
-            cur_gt[:, :2], dim=1) / bda_scale
-        # Official range is inclusive. Undoing BDA scale can introduce a few
-        # ulps at exact 30/40/50m boundaries, so tolerate only numeric noise;
-        # the learned trust-radius gate remains strictly ``distance < tau``.
-        within_official_range = canonical_radius <= official_ranges + 1e-4
+        if self.filter_by_official_range:
+            canonical_radius = torch.linalg.vector_norm(
+                cur_gt[:, :2], dim=1) / bda_scale
+            # Official range is inclusive. Undoing BDA scale can introduce a few
+            # ulps at exact 30/40/50m boundaries, so tolerate only numeric noise;
+            # the learned trust-radius gate remains strictly ``distance < tau``.
+            within_official_range = canonical_radius <= official_ranges + 1e-4
+        else:
+            within_official_range = torch.ones(
+                num_gt, dtype=torch.bool, device=cur_gt.device)
 
         pc_range = self._point_cloud_range.to(
             device=cur_gt.device, dtype=cur_gt.dtype)
