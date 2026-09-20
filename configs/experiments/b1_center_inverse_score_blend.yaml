@@ -1,0 +1,14 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_inverse_score_blend
+  description: >-
+    Keep the official GT range gate and draw fixed-size Gaussians at
+    proposal*(1-score) + GT*score centers.
+
+region:
+  scaler:
+    type: inverse_score_center_only
+
+runtime:
+  output_dir: outputs/b1_center_inverse_score_blend

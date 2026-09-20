@@ -152,7 +152,11 @@ def validate_config(
         ),
         "region.scaler.type": (
             config.region.scaler.type,
-            {"adaptive_gt_scaler_v3", "proposal_center_only"},
+            {
+                "adaptive_gt_scaler_v3",
+                "proposal_center_only",
+                "inverse_score_center_only",
+            },
         ),
         "region.value.type": (
             config.region.value.type,
@@ -191,12 +195,16 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
-    if config.region.scaler.enabled and config.region.scaler.type == "proposal_center_only":
+    center_only_scalers = {"proposal_center_only", "inverse_score_center_only"}
+    if (
+        config.region.scaler.enabled
+        and config.region.scaler.type in center_only_scalers
+    ):
         _require(
             config.matching.type == "scale_conditioned_center_distance"
             and config.region.value.type == "normalized_squared_margin"
             and config.region.mask.type == "per_gt_gaussian",
-            "proposal_center_only requires B1 matching/value and per_gt_gaussian",
+            "center-only scaling requires B1 matching/value and per_gt_gaussian",
             errors,
         )
     w_low = config.region.mask.w_low

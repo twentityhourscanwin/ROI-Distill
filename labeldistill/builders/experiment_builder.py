@@ -10,6 +10,9 @@ from labeldistill.presets import build_j4_model_configs
 from labeldistill.refine_head.target_assigner.adaptive_gt_scaler_v3 import (
     AdaptiveGTScalerV3,
 )
+from labeldistill.refine_head.target_assigner.inverse_score_center_shift import (
+    InverseScoreCenterShift,
+)
 from labeldistill.refine_head.target_assigner.proposal_center_shift import (
     ProposalCenterShift,
 )
@@ -81,6 +84,8 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
     )
     if config.region.scaler.type == 'proposal_center_only':
         scaler = ProposalCenterShift()
+    elif config.region.scaler.type == 'inverse_score_center_only':
+        scaler = InverseScoreCenterShift()
     else:
         scaler = AdaptiveGTScalerV3(
             mu=config.region.scaler.mu,
