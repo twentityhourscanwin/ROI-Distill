@@ -150,6 +150,7 @@ class MatchingConfig:
 class ScalerConfig:
     type: str = "adaptive_gt_scaler_v3"
     enabled: bool = True
+    alpha: float = 0.0
     mu: float = 0.15
     velocity_scale: float = 0.2
     max_distance: float = 50.0

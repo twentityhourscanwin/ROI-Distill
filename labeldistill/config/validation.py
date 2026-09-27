@@ -152,7 +152,7 @@ def validate_config(
         ),
         "region.scaler.type": (
             config.region.scaler.type,
-            {"adaptive_gt_scaler_v3", "proposal_center_only"},
+            {"adaptive_gt_scaler_v3", "proposal_center_only", "sigmoid_score_center"},
         ),
         "region.value.type": (
             config.region.value.type,
@@ -191,14 +191,22 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
-    if config.region.scaler.enabled and config.region.scaler.type == "proposal_center_only":
+    if config.region.scaler.enabled and config.region.scaler.type in {
+        "proposal_center_only", "sigmoid_score_center"
+    }:
         _require(
             config.matching.type == "scale_conditioned_center_distance"
             and config.region.value.type == "normalized_squared_margin"
             and config.region.mask.type == "per_gt_gaussian",
-            "proposal_center_only requires B1 matching/value and per_gt_gaussian",
+            "center-only scaler requires B1 matching/value and per_gt_gaussian",
             errors,
         )
+    _require(
+        math.isfinite(config.region.scaler.alpha)
+        and config.region.scaler.alpha >= 0,
+        "region.scaler.alpha must be finite and non-negative",
+        errors,
+    )
     w_low = config.region.mask.w_low
     w_high = config.region.mask.w_high
     if config.region.mask.type == "quality_aware_mask_v3":

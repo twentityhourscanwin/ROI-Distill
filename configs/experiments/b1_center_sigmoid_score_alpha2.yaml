@@ -1,0 +1,15 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_sigmoid_score_alpha2
+  description: >-
+    保持 Proposal 中心基线的匹配、q、GT 尺寸和双层蒸馏，仅以
+    sigmoid(logit(score)+2) 控制 feature KD 区域中心。
+
+region:
+  scaler:
+    type: sigmoid_score_center
+    alpha: 2.0
+
+runtime:
+  output_dir: outputs/b1_center_sigmoid_score_alpha2
