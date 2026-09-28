@@ -1,0 +1,10 @@
+_base_: b1_teacher_value_no_scale.yaml
+
+experiment:
+  name: b1_center_gt_matched_control
+  description: >-
+    Matched-GT center control paired with Proposal center; same matching,
+    teacher value, Gaussian masks, response scope, and feature channels.
+
+runtime:
+  output_dir: outputs/b1_center_gt_matched_control
