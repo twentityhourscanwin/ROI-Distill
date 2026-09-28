@@ -1,0 +1,14 @@
+_base_: b0_full_gt_uniform_no_scale.yaml
+
+experiment:
+  name: b0_gt_uniform_full_channels
+  description: >-
+    GT-centered feature KD on every effective GT Gaussian with uniform q=1,
+    all-GT bbox response, and all student backbone channels passed to the
+    two-level distillation adaptor.
+
+student:
+  temporal_kd_selection: full
+
+runtime:
+  output_dir: outputs/b0_gt_uniform_full_channels
