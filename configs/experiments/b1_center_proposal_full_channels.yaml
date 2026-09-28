@@ -1,0 +1,13 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_proposal_full_channels
+  description: >-
+    Proposal-center feature KD with all student backbone channels passed
+    into the two-level distillation adaptor.
+
+student:
+  temporal_kd_selection: full
+
+runtime:
+  output_dir: outputs/b1_center_proposal_full_channels
