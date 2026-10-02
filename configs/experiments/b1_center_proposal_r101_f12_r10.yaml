@@ -1,0 +1,13 @@
+_base_: b1_center_proposal_r101.yaml
+
+experiment:
+  name: b1_center_proposal_r101_f12_r10
+  description: >-
+    R101 Proposal 半通道蒸馏系数消融：feature=1.2、response=1.0，其余设置与基线一致。
+
+loss:
+  feature_weight: 1.2
+  response_weight: 1.0
+
+runtime:
+  output_dir: outputs/b1_center_proposal_r101_f12_r10
