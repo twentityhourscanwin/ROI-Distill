@@ -1,0 +1,12 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_proposal_r101
+  description: >-
+    保持 Proposal 中心、距离 q、半通道蒸馏和 256×704 图像设置，仅替换学生为 ResNet-101。
+
+student:
+  type: camera_bevdepth_r101
+
+runtime:
+  output_dir: outputs/b1_center_proposal_r101
