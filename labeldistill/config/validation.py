@@ -130,7 +130,8 @@ def validate_config(
         "data.dataset": (config.data.dataset, {"nuscenes"}),
         "student.type": (
             config.student.type,
-            {"camera_bevdepth_r50", "camera_bevdepth_convnextb"},
+            {"camera_bevdepth_r50", "camera_bevdepth_r101",
+             "camera_bevdepth_convnextb"},
         ),
         "student.temporal_kd_selection": (
             config.student.temporal_kd_selection,
@@ -150,7 +151,10 @@ def validate_config(
             config.matching.selection,
             {"highest_score", "score_first_nearest_unmatched_gt"},
         ),
-        "region.scaler.type": (config.region.scaler.type, {"adaptive_gt_scaler_v3"}),
+        "region.scaler.type": (
+            config.region.scaler.type,
+            {"adaptive_gt_scaler_v3", "proposal_center_only"},
+        ),
         "region.value.type": (
             config.region.value.type,
             {"legacy_discrete", "normalized_squared_margin", "uniform_gt"},
@@ -188,6 +192,14 @@ def validate_config(
     }
     for path, (value, supported) in supported_values.items():
         _require(value in supported, f"{path}={value!r} is not supported", errors)
+    if config.region.scaler.enabled and config.region.scaler.type == "proposal_center_only":
+        _require(
+            config.matching.type == "scale_conditioned_center_distance"
+            and config.region.value.type == "normalized_squared_margin"
+            and config.region.mask.type == "per_gt_gaussian",
+            "proposal_center_only requires B1 matching/value and per_gt_gaussian",
+            errors,
+        )
     w_low = config.region.mask.w_low
     w_high = config.region.mask.w_high
     if config.region.mask.type == "quality_aware_mask_v3":
@@ -431,6 +443,15 @@ def validate_config(
         "student.image.drop_path_rate must be in [0, 1)",
         errors,
     )
+    if config.student.type in {
+        "camera_bevdepth_r50", "camera_bevdepth_r101",
+    } and len(final_size) == 2:
+        _require(
+            all(value % 32 == 0 for value in final_size),
+            "ResNet student.image.final_size must be divisible by 32 "
+            "for the four-stage image neck",
+            errors,
+        )
     if config.student.type == "camera_bevdepth_convnextb" and len(final_size) == 2:
         _require(
             all(value % 32 == 0 for value in final_size),

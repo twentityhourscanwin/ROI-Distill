@@ -38,11 +38,31 @@ def _student_base(config):
     if config.student.type == 'camera_bevdepth_convnextb':
         from .convnextb import build_convnextb_student_base
         return build_convnextb_student_base(config)
-    if config.student.type == 'camera_bevdepth_r50':
+    if config.student.type in {'camera_bevdepth_r50', 'camera_bevdepth_r101'}:
+        backbone = deepcopy(base_exp.backbone_conf)
+        image = config.student.image
+        final_dim = tuple(map(int, image.final_size))
+        backbone['final_dim'] = final_dim
+        ida_aug = deepcopy(base_exp.ida_aug_conf)
+        ida_aug.update(
+            H=int(image.source_size[0]),
+            W=int(image.source_size[1]),
+            final_dim=final_dim,
+            resize_lim=tuple(map(float, image.resize_limit)),
+        )
+        if config.student.type == 'camera_bevdepth_r101':
+            image_backbone = backbone['img_backbone_conf']
+            image_backbone['depth'] = 101
+            image_backbone['init_cfg'] = (
+                dict(type='Pretrained', checkpoint='torchvision://resnet101')
+                if image.pretrained else None
+            )
+            if image.gradient_checkpointing:
+                image_backbone['with_cp'] = True
         return (
-            deepcopy(base_exp.backbone_conf),
+            backbone,
             deepcopy(base_exp.head_conf),
-            deepcopy(base_exp.ida_aug_conf),
+            ida_aug,
             deepcopy(base_exp.bda_aug_conf),
             deepcopy(base_exp.img_conf),
         )
