@@ -1,0 +1,44 @@
+_base_: b1_center_proposal.yaml
+
+experiment:
+  name: b1_center_proposal_convnextb_896x1600
+  description: >-
+    ConvNeXt-Base 896x1600 Proposal, distance q and half-channel distillation;
+    ImageNet1K initialization, four-stage image neck and grouped AdamW.
+
+student:
+  type: camera_bevdepth_convnextb
+  image:
+    source_size: [900, 1600]
+    final_size: [896, 1600]
+    resize_limit: [1.0, 1.1]
+    include_stage0: true
+    gradient_checkpointing: true
+    pretrained: true
+    pretrained_weights: IMAGENET1K_V1
+    drop_path_rate: 0.2
+
+optimizer:
+  type: AdamW
+  base_lr_at_global_batch_64: 0.0001
+  weight_decay: 0.01
+  backbone_lr_mult: 1.0
+  param_group_policy: convnext_image
+  image_backbone_lr_mult: 0.5
+  image_backbone_weight_decay: 0.05
+  betas: [0.9, 0.999]
+
+scheduler:
+  type: LinearWarmupCosine
+  milestones: []
+  warmup_steps: 500
+  warmup_ratio: 0.001
+  min_lr_ratio: 0.01
+
+runtime:
+  gpus: 16
+  num_nodes: 1
+  batch_size_per_device: 4
+  accumulate_grad_batches: 2
+  max_epochs: 24
+  output_dir: outputs/b1_center_proposal_convnextb_896x1600

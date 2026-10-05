@@ -11,6 +11,7 @@ from omegaconf import OmegaConf
 from torch.optim.lr_scheduler import LambdaLR, MultiStepLR
 
 from labeldistill.datasets.nusc_det_dataset_lidar import NuscDetDataset, collate_fn
+from labeldistill.experiments.image_optimizer_groups import ImageOptimizerGroups
 from labeldistill.exps.nuscenes.base_exp import LabelDistillModel as BaseExperiment
 
 
@@ -42,6 +43,9 @@ def _linear_warmup_multistep_lambda(
 
 class J4Experiment(BaseExperiment):
     """The shared J4 training loop with all experiment policies injected."""
+
+    optimizer_param_group_policy = 'legacy_backbone'
+    optimizer_betas = (0.9, 0.999)
 
     def __init__(self, *, config, model, matcher, scaler, mask_generator,
                  feature_loss_reducer,
@@ -88,6 +92,11 @@ class J4Experiment(BaseExperiment):
             config.derived.effective_learning_rate)
         self.optimizer_weight_decay = float(config.optimizer.weight_decay)
         self.backbone_lr_mult = float(config.optimizer.backbone_lr_mult)
+        self.optimizer_param_group_policy = str(config.optimizer.param_group_policy)
+        self.image_backbone_lr_mult = float(config.optimizer.image_backbone_lr_mult)
+        self.image_backbone_weight_decay = float(
+            config.optimizer.image_backbone_weight_decay)
+        self.optimizer_betas = tuple(map(float, config.optimizer.betas))
         self.scheduler_type = str(config.scheduler.type)
         self.scheduler_milestones = list(config.scheduler.milestones)
         self.scheduler_warmup_steps = int(config.scheduler.warmup_steps)
@@ -361,20 +370,39 @@ class J4Experiment(BaseExperiment):
         )
 
     def configure_optimizers(self):
-        wrapper_config = dict(
-            type='OptimWrapper',
-            optimizer=dict(
-                type='AdamW',
+        if self.optimizer_param_group_policy == 'convnext_image':
+            groups = ImageOptimizerGroups.build(
+                self.model,
                 lr=self.effective_learning_rate,
+                image_lr_mult=self.image_backbone_lr_mult,
                 weight_decay=self.optimizer_weight_decay,
-            ),
-            paramwise_cfg=dict(custom_keys={
-                'backbone': dict(lr_mult=self.backbone_lr_mult),
-            }),
-        )
-        optimizer = build_optim_wrapper(self.model, wrapper_config)
-        if hasattr(optimizer, 'optimizer'):
-            optimizer = optimizer.optimizer
+                image_weight_decay=self.image_backbone_weight_decay,
+            )
+            self.optimizer_group_summary = ImageOptimizerGroups.summarize(groups)
+            print(f'Optimizer parameter groups: {self.optimizer_group_summary}')
+            optimizer = torch.optim.AdamW(
+                groups, lr=self.effective_learning_rate,
+                weight_decay=self.optimizer_weight_decay, betas=self.optimizer_betas,
+            )
+        elif self.optimizer_param_group_policy == 'legacy_backbone':
+            wrapper_config = dict(
+                type='OptimWrapper',
+                optimizer=dict(
+                    type='AdamW',
+                    lr=self.effective_learning_rate,
+                    weight_decay=self.optimizer_weight_decay,
+                    betas=self.optimizer_betas,
+                ),
+                paramwise_cfg=dict(custom_keys={
+                    'backbone': dict(lr_mult=self.backbone_lr_mult),
+                }),
+            )
+            optimizer = build_optim_wrapper(self.model, wrapper_config)
+            if hasattr(optimizer, 'optimizer'):
+                optimizer = optimizer.optimizer
+        else:
+            raise ValueError(
+                f'Unsupported optimizer grouping: {self.optimizer_param_group_policy!r}')
         if self.scheduler_type == 'MultiStepLR':
             if self.scheduler_warmup_steps > 0:
                 total_steps = int(self.trainer.estimated_stepping_batches)

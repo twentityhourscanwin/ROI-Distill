@@ -13,6 +13,9 @@ def build_convnextb_student_base(config):
     image = config.student.image
     source_height, source_width = map(int, image.source_size)
     final_dim = tuple(map(int, image.final_size))
+    include_stage0 = bool(image.include_stage0)
+    image_channels = [128, 256, 512, 1024] if include_stage0 else [256, 512, 1024]
+    neck_width = len(image_channels) * 128
 
     backbone = deepcopy(base_exp.backbone_conf)
     backbone.update(
@@ -21,7 +24,7 @@ def build_convnextb_student_base(config):
         img_backbone_conf=dict(
             type='TorchvisionConvNeXt',
             arch='base',
-            out_indices=[1, 2, 3],
+            out_indices=[0, 1, 2, 3] if include_stage0 else [1, 2, 3],
             with_cp=bool(image.gradient_checkpointing),
             # A resumed/evaluated checkpoint will immediately replace these
             # weights. Avoid a redundant network download in that path.
@@ -29,16 +32,17 @@ def build_convnextb_student_base(config):
                 bool(image.pretrained)
                 and config.runtime.resume_from is None
             ),
+            pretrained_weights=image.pretrained_weights,
             frozen_stages=-1,
             drop_path_rate=float(image.drop_path_rate),
         ),
         img_neck_conf=dict(
             type='SECONDFPN',
-            in_channels=[256, 512, 1024],
-            upsample_strides=[0.5, 1, 2],
-            out_channels=[128, 128, 128],
+            in_channels=image_channels,
+            upsample_strides=[0.25, 0.5, 1, 2] if include_stage0 else [0.5, 1, 2],
+            out_channels=[128] * len(image_channels),
         ),
-        depth_net_conf=dict(in_channels=384, mid_channels=384),
+        depth_net_conf=dict(in_channels=neck_width, mid_channels=neck_width),
     )
     head = deepcopy(base_exp.head_conf)
     ida_aug = deepcopy(base_exp.ida_aug_conf)
