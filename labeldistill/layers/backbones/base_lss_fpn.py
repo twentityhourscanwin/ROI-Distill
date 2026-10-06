@@ -621,7 +621,36 @@ class BaseLSSFPN(nn.Module):
         #体素网格大小 (self.voxel_num): [128, 128, 1]
         #体素索引 'geom_xyz' 形状 (B, Ncams, D, Hf, Wf, 3): torch.Size([2, 6, 112, 32, 88, 3])
         
-        if self.training or self.use_da:
+        if self.training and not self.use_da:
+            # 在小型 depth/context 上切样本，避免整 batch lift 及其布局副本。
+            # 前置 neck、DepthNet 与 softmax 保持整 batch，保留 BN 分组语义。
+            pooled = []
+            for batch_idx in range(batch_size):
+                camera_start = batch_idx * num_cams
+                camera_end = camera_start + num_cams
+                sample_depth = depth[camera_start:camera_end]
+                sample_context = depth_feature[
+                    camera_start:camera_end,
+                    self.depth_channels:self.depth_channels + self.output_channels,
+                ]
+                img_feat_with_depth = (
+                    sample_depth.unsqueeze(1) * sample_context.unsqueeze(2))
+                img_feat_with_depth = self._forward_voxel_net(img_feat_with_depth)
+                img_feat_with_depth = img_feat_with_depth.permute(
+                    0, 2, 3, 4, 1).unsqueeze(0).contiguous()
+                sample_bev = self._voxel_pooling_train_fp32(
+                    geom_xyz[batch_idx:batch_idx + 1], img_feat_with_depth)
+                self._raise_if_nonfinite_bev(
+                    sample_bev,
+                    depth_feature[camera_start:camera_end, :self.depth_channels],
+                    sample_context,
+                    img_feat_with_depth,
+                )
+                pooled.append(sample_bev)
+                # pool backward 仅保存位置；释放 lift，避免下一样本构造时重叠。
+                del img_feat_with_depth, sample_depth, sample_context
+            feature_map = torch.cat(pooled, dim=0)
+        elif self.training or self.use_da:
             # 显存优化：直接切片 depth_feature，避免创建中间副本
             depth_feat_slice = depth_feature[:, self.depth_channels:(
                 self.depth_channels + self.output_channels)]
