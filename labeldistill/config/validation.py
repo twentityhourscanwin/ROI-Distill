@@ -128,6 +128,7 @@ def validate_config(
 
     supported_values = {
         "data.dataset": (config.data.dataset, {"nuscenes"}),
+        "data.preprocessing_version": (config.data.preprocessing_version, {1, 2}),
         "student.type": (
             config.student.type,
             {"camera_bevdepth_r50", "camera_bevdepth_r101",

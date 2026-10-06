@@ -121,6 +121,10 @@ def _student_configs(config):
         voxel_size=student_voxel,
         out_size_factor=STUDENT_HEAD_OUT_SIZE_FACTOR,
     )
+    # PIL supplies RGB. Keep the historical swap only for versioned replay.
+    corrected_inputs = config.data.preprocessing_version == 2
+    img['to_rgb'] = not corrected_inputs
+    img['depth_rasterization'] = 'nearest' if corrected_inputs else 'legacy'
     return backbone, head, ida_aug, bda_aug, img
 
 

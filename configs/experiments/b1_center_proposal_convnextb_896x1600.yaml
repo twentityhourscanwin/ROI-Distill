@@ -6,6 +6,9 @@ experiment:
     ConvNeXt-Base 896x1600 Proposal, distance q and half-channel distillation;
     ImageNet1K initialization, four-stage image neck and grouped AdamW.
 
+data:
+  preprocessing_version: 2
+
 student:
   type: camera_bevdepth_convnextb
   image:
