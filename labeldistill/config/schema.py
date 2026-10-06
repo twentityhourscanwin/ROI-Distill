@@ -61,6 +61,8 @@ class DataConfig:
     split: str = "train"
     num_workers: int = 4
     use_cbgs: bool = False
+    # Version 1 preserves saved experiments; version 2 fixes RGB/depth inputs.
+    preprocessing_version: int = 1
     key_idxes: List[int] = field(default_factory=list)
 
 

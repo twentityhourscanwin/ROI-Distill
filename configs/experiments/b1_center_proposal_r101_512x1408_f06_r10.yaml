@@ -1,0 +1,14 @@
+_base_: b1_center_proposal_r101_512x1408.yaml
+
+experiment:
+  name: b1_center_proposal_r101_512x1408_f06_r10
+  description: >-
+    512×1408 R101 Proposal半通道蒸馏，feature=0.6、response=1.0；
+    GT检测与深度外层系数均为1，每卡8、累积1、global128。
+
+loss:
+  feature_weight: 0.6
+  response_weight: 1.0
+
+runtime:
+  output_dir: outputs/b1_center_proposal_r101_512x1408_f06_r10
