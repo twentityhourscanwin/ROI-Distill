@@ -1,0 +1,13 @@
+_base_: b1_center_proposal_convnextb_896x1600.yaml
+
+experiment:
+  name: temporal_fallback_convnextb_current
+  description: >-
+    沿用官方版本1预处理，仅对照训练历史帧不足时的补齐策略：current。
+
+data:
+  preprocessing_version: 1
+  train_history_fallback: current
+
+runtime:
+  output_dir: outputs/temporal_fallback_convnextb_current

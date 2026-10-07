@@ -61,6 +61,9 @@ class DataConfig:
     split: str = "train"
     num_workers: int = 4
     use_cbgs: bool = False
+    # Version 1 preserves saved experiments; version 2 fixes RGB/depth inputs.
+    preprocessing_version: int = 1
+    train_history_fallback: str = "previous_valid"
     key_idxes: List[int] = field(default_factory=list)
 
 
@@ -84,6 +87,8 @@ class StudentImageConfig:
     resize_limit: List[float] = field(default_factory=lambda: [0.386, 0.55])
     gradient_checkpointing: bool = False
     pretrained: bool = True
+    include_stage0: bool = False
+    pretrained_weights: str = "IMAGENET1K_V1"
     drop_path_rate: float = 0.0
 
 
@@ -197,6 +202,10 @@ class OptimizerConfig:
     base_lr_at_global_batch_64: float = MISSING
     weight_decay: float = 0.01
     backbone_lr_mult: float = 0.5
+    param_group_policy: str = "legacy_backbone"
+    image_backbone_lr_mult: float = 0.5
+    image_backbone_weight_decay: float = 0.05
+    betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
 
 
 @dataclass

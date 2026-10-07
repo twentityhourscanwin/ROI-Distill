@@ -11,6 +11,8 @@ from PIL import Image
 from pyquaternion import Quaternion
 from torch.utils.data import Dataset
 
+from labeldistill.datasets.depth_transform import depth_transform
+
 __all__ = ['NuscDetDataset']
 
 map_name_from_general_to_detection = {
@@ -120,52 +122,6 @@ def apply_bda_to_lidar_points_(points, bda_rot):
     return points
 
 
-def depth_transform(cam_depth, resize, resize_dims, crop, flip, rotate):
-    """Transform depth based on ida augmentation configuration.
-
-    Args:
-        cam_depth (np array): Nx3, 3: x,y,d.
-        resize (float): Resize factor.
-        resize_dims (list): Final dimension.
-        crop (list): x1, y1, x2, y2
-        flip (bool): Whether to flip.
-        rotate (float): Rotation value.
-
-    Returns:
-        np array: [h/down_ratio, w/down_ratio, d]
-    """
-
-    H, W = resize_dims
-    cam_depth[:, :2] = cam_depth[:, :2] * resize
-    cam_depth[:, 0] -= crop[0]
-    cam_depth[:, 1] -= crop[1]
-    if flip:
-        cam_depth[:, 0] = resize_dims[1] - cam_depth[:, 0]
-
-    cam_depth[:, 0] -= W / 2.0
-    cam_depth[:, 1] -= H / 2.0
-
-    h = rotate / 180 * np.pi
-    rot_matrix = [
-        [np.cos(h), np.sin(h)],
-        [-np.sin(h), np.cos(h)],
-    ]
-    cam_depth[:, :2] = np.matmul(rot_matrix, cam_depth[:, :2].T).T
-
-    cam_depth[:, 0] += W / 2.0
-    cam_depth[:, 1] += H / 2.0
-
-    depth_coords = cam_depth[:, :2].astype(np.int16)
-
-    depth_map = np.zeros(resize_dims)
-    valid_mask = ((depth_coords[:, 1] < resize_dims[0])
-                  & (depth_coords[:, 0] < resize_dims[1])
-                  & (depth_coords[:, 1] >= 0)
-                  & (depth_coords[:, 0] >= 0))
-    depth_map[depth_coords[valid_mask, 1],
-              depth_coords[valid_mask, 0]] = cam_depth[valid_mask, 2]
-
-    return torch.Tensor(depth_map)
 
 
 def map_pointcloud_to_image(
@@ -248,7 +204,8 @@ class NuscDetDataset(Dataset):
                  return_lidar=False,
                  sweep_idxes=list(),
                  key_idxes=list(),
-                 use_fusion=False):
+                 use_fusion=False,
+                 history_fallback='previous_valid'):
         """Dataset used for bevdetection task.
         Args:
             ida_aug_conf (dict): Config for ida augmentation.
@@ -267,8 +224,14 @@ class NuscDetDataset(Dataset):
                 default: list().
             use_fusion (bool): Whether to use lidar data.
                 default: False.
+            history_fallback (str): Missing keyframes use current or
+                previous_valid (the historical default).
         """
         super().__init__()
+        if history_fallback not in {'previous_valid', 'current'}:
+            raise ValueError(
+                f'Unsupported history_fallback: {history_fallback!r}')
+        self.history_fallback = history_fallback
         if isinstance(info_paths, list):
             self.infos = list()
             for info_path in info_paths:
@@ -288,6 +251,10 @@ class NuscDetDataset(Dataset):
         self.img_mean = np.array(img_conf['img_mean'], np.float32)
         self.img_std = np.array(img_conf['img_std'], np.float32)
         self.to_rgb = img_conf['to_rgb']
+        self.depth_rasterization = img_conf.get('depth_rasterization', 'legacy')
+        if self.depth_rasterization not in {'legacy', 'nearest'}:
+            raise ValueError(
+                f'Unsupported depth rasterization: {self.depth_rasterization!r}')
         self.return_depth = return_depth
         self.return_lidar = return_lidar
         assert sum([sweep_idx >= 0 for sweep_idx in sweep_idxes]) \
@@ -614,7 +581,8 @@ class NuscDetDataset(Dataset):
                                               count=-1).reshape(-1, 3)
                     point_depth_augmented = depth_transform(
                         point_depth, resize, self.ida_aug_conf['final_dim'],
-                        crop, flip, rotate_ida)
+                        crop, flip, rotate_ida,
+                        rasterization=self.depth_rasterization)
                     gt_depth.append(point_depth_augmented)
 
                 img, ida_mat = img_transform(
@@ -743,15 +711,12 @@ class NuscDetDataset(Dataset):
         info = self.infos[idx]
         lidar_infos.append([info['lidar_infos']] + info['lidar_sweeps'])
 
+        last_idx = idx
         for key_idx in self.key_idxes:
             cur_idx = key_idx + idx
-            # Handle scenarios when current idx doesn't have previous key
-            # frame or previous key frame is from another scene.
-            if cur_idx < 0:
-                cur_idx = last_idx
-            elif self.infos[cur_idx]['scene_token'] != self.infos[idx][
-                    'scene_token']:
-                cur_idx = last_idx
+            # Only real history updates last_idx; padding never changes it.
+            if cur_idx < 0 or self.infos[cur_idx]['scene_token'] != self.infos[idx]['scene_token']:
+                cur_idx = idx if self.history_fallback == 'current' else last_idx
             else:
                 last_idx = cur_idx
 

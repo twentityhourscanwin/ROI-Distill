@@ -1,0 +1,15 @@
+_base_: b1_center_proposal_r101.yaml
+
+experiment:
+  name: b1_center_proposal_r101_512x1408
+  description: >-
+    Proposal中心、严格匹配、距离q与半通道蒸馏保持不变，
+    R101从原图生成512×1408图像，按比例调整裁剪增强。
+
+student:
+  image:
+    final_size: [512, 1408]
+    resize_limit: [0.772, 1.10]
+
+runtime:
+  output_dir: outputs/b1_center_proposal_r101_512x1408
