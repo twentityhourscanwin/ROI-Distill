@@ -223,6 +223,19 @@ def validate_config(
         config.optimizer.image_backbone_weight_decay >= 0,
         "optimizer.image_backbone_weight_decay must be non-negative", errors,
     )
+
+    _require(
+        math.isfinite(config.optimizer.image_layer_decay)
+        and 0 < config.optimizer.image_layer_decay <= 1,
+        "optimizer.image_layer_decay must be finite and in (0, 1]", errors,
+    )
+    if config.optimizer.image_layer_decay != 1.0:
+        _require(
+            config.student.type == "camera_bevdepth_convnextb"
+            and config.optimizer.param_group_policy == "convnext_image",
+            "image_layer_decay requires ConvNeXt-B and convnext_image policy",
+            errors,
+        )
     _require(
         len(config.optimizer.betas) == 2
         and all(0 <= value < 1 for value in config.optimizer.betas),

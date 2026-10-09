@@ -205,6 +205,7 @@ class OptimizerConfig:
     param_group_policy: str = "legacy_backbone"
     image_backbone_lr_mult: float = 0.5
     image_backbone_weight_decay: float = 0.05
+    image_layer_decay: float = 1.0
     betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
 
 

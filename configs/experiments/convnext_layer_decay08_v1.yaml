@@ -1,0 +1,12 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+
+experiment:
+  name: convnext_layer_decay08_v1
+  description: >-
+    固定版本1预处理和previous_valid补帧，只对照ConvNeXt-B逐层学习率衰减0.8。
+
+optimizer:
+  image_layer_decay: 0.8
+
+runtime:
+  output_dir: outputs/convnext_layer_decay08_v1

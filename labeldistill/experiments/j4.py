@@ -45,6 +45,7 @@ class J4Experiment(BaseExperiment):
     """The shared J4 training loop with all experiment policies injected."""
 
     optimizer_param_group_policy = 'legacy_backbone'
+    image_layer_decay = 1.0
     optimizer_betas = (0.9, 0.999)
 
     def __init__(self, *, config, model, matcher, scaler, mask_generator,
@@ -96,6 +97,7 @@ class J4Experiment(BaseExperiment):
         self.image_backbone_lr_mult = float(config.optimizer.image_backbone_lr_mult)
         self.image_backbone_weight_decay = float(
             config.optimizer.image_backbone_weight_decay)
+        self.image_layer_decay = float(config.optimizer.image_layer_decay)
         self.optimizer_betas = tuple(map(float, config.optimizer.betas))
         self.scheduler_type = str(config.scheduler.type)
         self.scheduler_milestones = list(config.scheduler.milestones)
@@ -378,6 +380,7 @@ class J4Experiment(BaseExperiment):
                 image_lr_mult=self.image_backbone_lr_mult,
                 weight_decay=self.optimizer_weight_decay,
                 image_weight_decay=self.image_backbone_weight_decay,
+                layer_decay=self.image_layer_decay,
             )
             self.optimizer_group_summary = ImageOptimizerGroups.summarize(groups)
             print(f'Optimizer parameter groups: {self.optimizer_group_summary}')
