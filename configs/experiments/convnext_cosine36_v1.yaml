@@ -1,0 +1,9 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+experiment:
+  name: convnext_cosine36_v1
+  description: 从相同初始化训练36epoch，延长整个cosine预算。
+runtime:
+  output_dir: outputs/convnext_cosine36_v1
+  max_epochs: 36
+checkpoint:
+  save_top_k: 13

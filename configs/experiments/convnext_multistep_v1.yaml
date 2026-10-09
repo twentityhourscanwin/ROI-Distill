@@ -1,0 +1,12 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+experiment:
+  name: convnext_multistep_v1
+  description: 固定warmup与其他设置，仅改变退火为MultiStep。
+runtime:
+  output_dir: outputs/convnext_multistep_v1
+scheduler:
+  type: MultiStepLR
+  milestones:
+  - 19
+  - 23
+  gamma: 0.1

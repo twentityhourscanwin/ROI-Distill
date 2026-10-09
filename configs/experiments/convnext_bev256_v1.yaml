@@ -1,0 +1,8 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+experiment:
+  name: convnext_bev256_v1
+  description: 固定BEV网格，联动加宽每帧context与BEV编码。
+runtime:
+  output_dir: outputs/convnext_bev256_v1
+student:
+  output_channels: 256
