@@ -38,7 +38,7 @@ class TorchvisionConvNeXt(nn.Module):
                  pretrained=True, pretrained_weights='IMAGENET1K_V1',
                  frozen_stages=-1, drop_path_rate=0.0,
                  layer_scale_init_value=1e-6, gap_before_final_norm=False,
-                 init_cfg=None, **kwargs):
+                 init_cfg=None, stage_output_norm=False, **kwargs):
         super().__init__()
         if arch not in self.ARCH_SETTINGS:
             raise ValueError(f'Unsupported ConvNeXt arch: {arch}')
@@ -68,6 +68,10 @@ class TorchvisionConvNeXt(nn.Module):
                           backbone.features[2 * index + 1])
             for index in range(4)
         ])
+        self.output_norms = nn.ModuleDict({
+            str(index): nn.LayerNorm(self.CHANNELS[arch][index], eps=1e-6)
+            for index in out_indices
+        } if stage_output_norm else {})
         self.out_channels = [self.CHANNELS[arch][index] for index in out_indices]
         self._freeze_stages()
 
@@ -75,6 +79,9 @@ class TorchvisionConvNeXt(nn.Module):
         for index in range(self.frozen_stages + 1):
             self.stages[index].eval()
             self.stages[index].requires_grad_(False)
+            if str(index) in self.output_norms:
+                self.output_norms[str(index)].eval()
+                self.output_norms[str(index)].requires_grad_(False)
 
     def train(self, mode=True):
         super().train(mode)
@@ -132,7 +139,9 @@ class TorchvisionConvNeXt(nn.Module):
                 raise ValueError(f'Invalid torchvision feature key: {key}')
             stage_index, sub_index = divmod(int(index), 2)
             mapped[f'stages.{stage_index}.{sub_index}.{suffix}'] = tensor
-        own_state = self.state_dict()
+        # Detection output norms have no matching ImageNet feature tensors.
+        own_state = {'stages.' + key: value
+                     for key, value in self.stages.state_dict().items()}
         missing = sorted(set(own_state) - set(mapped))
         unexpected = sorted(set(mapped) - set(own_state))
         if missing or unexpected:
@@ -144,7 +153,9 @@ class TorchvisionConvNeXt(nn.Module):
                 raise RuntimeError(
                     f'ConvNeXt shape mismatch for {key}: '
                     f'{tuple(tensor.shape)} != {tuple(own_state[key].shape)}')
-        self.load_state_dict(mapped, strict=True)
+        self.stages.load_state_dict({
+            key[len('stages.'):]: value for key, value in mapped.items()
+        }, strict=True)
         return {
             'loaded_keys': sorted(mapped),
             'loaded_tensor_count': len(mapped),
@@ -217,5 +228,9 @@ class TorchvisionConvNeXt(nn.Module):
                 else:
                     feature = block(feature)
             if index in self.out_indices:
-                outputs.append(feature)
+                output = feature
+                if str(index) in self.output_norms:
+                    output = self.output_norms[str(index)](
+                        feature.permute(0, 2, 3, 1)).permute(0, 3, 1, 2).contiguous()
+                outputs.append(output)
         return tuple(outputs)

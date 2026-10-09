@@ -26,6 +26,7 @@ def build_convnextb_student_base(config):
             arch='base',
             out_indices=[0, 1, 2, 3] if include_stage0 else [1, 2, 3],
             with_cp=bool(image.gradient_checkpointing),
+            stage_output_norm=bool(image.stage_output_norm),
             # A resumed/evaluated checkpoint will immediately replace these
             # weights. Avoid a redundant network download in that path.
             pretrained=(

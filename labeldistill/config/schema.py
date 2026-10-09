@@ -88,6 +88,7 @@ class StudentImageConfig:
     gradient_checkpointing: bool = False
     pretrained: bool = True
     include_stage0: bool = False
+    stage_output_norm: bool = False
     pretrained_weights: str = "IMAGENET1K_V1"
     drop_path_rate: float = 0.0
 

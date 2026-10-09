@@ -1,0 +1,9 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+experiment:
+  name: convnext_stage_norm_v1
+  description: ConvNeXt 各选中 stage 输出添加逐像素通道 LayerNorm，保持其他基线设置
+student:
+  image:
+    stage_output_norm: true
+runtime:
+  output_dir: outputs/convnext_stage_norm_v1
