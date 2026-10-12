@@ -1,0 +1,12 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+
+experiment:
+  name: convnext_head128_v1
+  description: >-
+    H1：仅将学生检测头共享卷积通道从64增至128，任务分支内部通道保持64。
+
+student:
+  head_shared_channels: 128
+
+runtime:
+  output_dir: outputs/convnext_head128_v1

@@ -81,6 +81,7 @@ def _student_configs(config):
     backbone['z_bound'] = [point_range[2], point_range[5], point_range[5] - point_range[2]]
     backbone['output_channels'] = output_channels
 
+    head['share_conv_channel'] = int(config.student.head_shared_channels)
     head['bev_backbone_conf']['in_channels'] = output_channels * key_frames
     head['bev_backbone_conf']['base_channels'] = output_channels * 2
     head['bev_neck_conf']['in_channels'] = [

@@ -147,6 +147,7 @@ class KDHead(CenterHead):
         test_cfg(dict): Config used in the test process.
         bev_backbone_conf(dict): Cnfig of bev_backbone.
         bev_neck_conf(dict): Cnfig of bev_neck.
+        share_conv_channel(int): Width of the shared detection convolution.
     """
 
     def __init__(
@@ -166,7 +167,12 @@ class KDHead(CenterHead):
         separate_head=dict(type='SeparateHead',
                            init_bias=-2.19,
                            final_kernel=3),
+        share_conv_channel=64,
     ):
+        if (not isinstance(share_conv_channel, int)
+                or isinstance(share_conv_channel, bool)
+                or share_conv_channel <= 0):
+            raise ValueError('share_conv_channel must be a positive integer')
         super(KDHead, self).__init__(
             in_channels=in_channels,
             tasks=tasks,
@@ -175,6 +181,7 @@ class KDHead(CenterHead):
             loss_cls=loss_cls,
             loss_bbox=loss_bbox,
             separate_head=separate_head,
+            share_conv_channel=share_conv_channel,
         )
         self.trunk = MODELS_DET.build(bev_backbone_conf)   # ResNet 注册在 mmdet
         self.trunk.init_weights()

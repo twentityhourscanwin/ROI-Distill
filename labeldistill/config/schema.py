@@ -97,6 +97,7 @@ class StudentConfig:
     type: str = MISSING
     output_channels: int = MISSING
     temporal_kd_selection: str = MISSING
+    head_shared_channels: int = 64
     image: StudentImageConfig = field(default_factory=StudentImageConfig)
 
 

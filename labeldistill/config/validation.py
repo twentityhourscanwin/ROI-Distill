@@ -451,6 +451,11 @@ def validate_config(
         errors,
     )
     _require(config.student.output_channels > 0, "student.output_channels must be positive", errors)
+    _require(
+        config.student.head_shared_channels > 0,
+        "student.head_shared_channels must be positive",
+        errors,
+    )
     source_size = list(config.student.image.source_size)
     final_size = list(config.student.image.final_size)
     resize_limit = list(config.student.image.resize_limit)
