@@ -263,6 +263,18 @@ class J4Experiment(BaseExperiment):
                 self.log(
                     f'train/feature_{group_name}_raw', group_loss,
                     on_step=True, sync_dist=True)
+        if self.config.diagnostics.enabled:
+            self._diagnostics_batch = ({
+                'raw/detection': detection_loss.detach(),
+                'raw/depth': depth_loss.detach(),
+                'raw/feature': feature_loss.detach(),
+                'raw/response': response_loss.detach(),
+                'weighted/detection': weighted_detection.detach(),
+                'weighted/depth': weighted_depth.detach(),
+                'weighted/feature': weighted_feature.detach(),
+                'weighted/response': weighted_response.detach(),
+                'total': total_loss.detach(),
+            }, int(sweep_imgs.shape[0]))
         return total_loss
 
     @staticmethod

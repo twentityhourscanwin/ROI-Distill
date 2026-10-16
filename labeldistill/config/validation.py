@@ -119,6 +119,27 @@ def validate_config(
         "checkpoint.every_n_epochs must be positive",
         errors,
     )
+    for field in ("log_every_n_steps", "gradient_every_n_steps", "update_every_n_steps"):
+        _require(
+            config.diagnostics[field] > 0,
+            f"diagnostics.{field} must be positive", errors,
+        )
+    milestones = list(config.checkpoint.milestone_epochs)
+    _require(
+        all(epoch > 0 for epoch in milestones)
+        and milestones == sorted(set(milestones)),
+        "checkpoint.milestone_epochs must be sorted unique positive epochs", errors,
+    )
+    if milestones:
+        _require(
+            config.checkpoint.save_top_k != 0,
+            "milestone retention requires checkpoint.save_top_k != 0", errors,
+        )
+        _require(
+            all(epoch % config.checkpoint.every_n_epochs == 0 for epoch in milestones)
+            if config.checkpoint.every_n_epochs > 0 else False,
+            "milestone epochs must align with checkpoint.every_n_epochs", errors,
+        )
     _require(config.data.num_workers >= 0, "data.num_workers must be non-negative", errors)
     _require(
         config.data.split in {"train", "trainval"},

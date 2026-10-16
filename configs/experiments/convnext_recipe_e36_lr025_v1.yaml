@@ -1,0 +1,13 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+experiment:
+  name: convnext_recipe_e36_lr025_v1
+  description: B0结构固定，36轮cosine与图像学习率倍率0.25对照，启用训练诊断。
+runtime:
+  output_dir: outputs/convnext_recipe_e36_lr025_v1
+  max_epochs: 36
+optimizer:
+  image_backbone_lr_mult: 0.25
+diagnostics:
+  enabled: true
+checkpoint:
+  milestone_epochs: [12, 18, 24, 30, 36]

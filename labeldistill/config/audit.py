@@ -38,6 +38,9 @@ _J4_CRITICAL_SOURCES = (
     "labeldistill/config/run.py",
     "labeldistill/config/validation.py",
     "labeldistill/callbacks/ema.py",
+    "labeldistill/callbacks/training_diagnostics.py",
+    "labeldistill/callbacks/milestone_checkpoint.py",
+    "labeldistill/experiments/image_optimizer_groups.py",
     "tools/train.py",
     "tools/evaluate.py",
 )

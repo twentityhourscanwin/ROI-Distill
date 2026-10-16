@@ -6,6 +6,8 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 
 from labeldistill.callbacks.ema import EMACallback
+from labeldistill.callbacks.milestone_checkpoint import MilestoneCheckpoint
+from labeldistill.callbacks.training_diagnostics import TrainingDiagnostics
 from labeldistill.config.run import checkpoint_directory
 
 
@@ -19,7 +21,15 @@ def build_trainer(config, experiment, *, for_evaluation=False):
         '64': 64,
     }
     checkpoint_dir = checkpoint_directory(config)
-    checkpoint_callback = ModelCheckpoint(
+    checkpoint_class = (
+        MilestoneCheckpoint if config.checkpoint.milestone_epochs else ModelCheckpoint
+    )
+    checkpoint_options = (
+        {"milestones": list(config.checkpoint.milestone_epochs)}
+        if config.checkpoint.milestone_epochs else {}
+    )
+    checkpoint_callback = checkpoint_class(
+        **checkpoint_options,
         dirpath=str(checkpoint_dir),
         filename='epoch_{epoch:02d}',
         save_top_k=config.checkpoint.save_top_k,
@@ -32,6 +42,10 @@ def build_trainer(config, experiment, *, for_evaluation=False):
         auto_insert_metric_name=False,
     )
     callbacks = [] if for_evaluation else [checkpoint_callback]
+    if config.diagnostics.enabled and not for_evaluation:
+        callbacks.insert(0, TrainingDiagnostics(
+            config.diagnostics, output_dir=config.runtime.output_dir,
+        ))
     if config.ema.enabled and not for_evaluation:
         # Preserve the legacy callback's update-count convention until EMA is
         # independently migrated and numerically frozen.

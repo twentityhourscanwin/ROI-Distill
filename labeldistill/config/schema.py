@@ -35,6 +35,14 @@ class RuntimeConfig:
 
 
 @dataclass
+class DiagnosticsConfig:
+    enabled: bool = False
+    log_every_n_steps: int = 50
+    gradient_every_n_steps: int = 50
+    update_every_n_steps: int = 100
+
+
+@dataclass
 class EMAConfig:
     enabled: bool = True
 
@@ -45,6 +53,7 @@ class CheckpointConfig:
     save_top_k: int = 3
     save_last: bool = True
     every_n_epochs: int = 1
+    milestone_epochs: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -234,6 +243,7 @@ class LabelDistillConfig:
     schema_version: int = MISSING
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
     ema: EMAConfig = field(default_factory=EMAConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
