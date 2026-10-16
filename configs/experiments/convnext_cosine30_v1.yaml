@@ -1,0 +1,7 @@
+_base_: convnext_cosine36_v1.yaml
+experiment:
+  name: convnext_cosine30_v1
+  description: 从相同初始化训练30epoch，延长整个cosine预算。
+runtime:
+  output_dir: outputs/convnext_cosine30_v1
+  max_epochs: 30
