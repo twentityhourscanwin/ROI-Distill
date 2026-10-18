@@ -1,0 +1,17 @@
+_base_: temporal_fallback_convnextb_previous_valid.yaml
+
+experiment:
+  name: convnext_feature_kd_off_v1
+  description: ConvNeXt-B B0配方，特征蒸馏系数0；检测、深度与response蒸馏不变。
+
+runtime:
+  output_dir: outputs/convnext_feature_kd_off_v1
+
+loss:
+  feature_weight: 0.0
+
+diagnostics:
+  enabled: true
+
+checkpoint:
+  milestone_epochs: [12, 18, 24]
