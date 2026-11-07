@@ -1,8 +1,8 @@
 _base_: convnext_cosine36_v1.yaml
 
 experiment:
-  name: convnext_student_s0
-  description: 无教师蒸馏的ConvNeXt-B学生基线，保持v1输入，36轮图像LR倍率0.5。
+  name: convnext_student_s2
+  description: 仅修正深度栅格化的纯学生对照，36轮图像LR倍率0.5。
 student:
   training_mode: pure_student
 loss:
@@ -11,11 +11,11 @@ loss:
 data:
   preprocessing_version: 1
   correct_rgb: false
-  correct_depth: false
+  correct_depth: true
 teacher:
   checkpoint: unused
 runtime:
-  output_dir: outputs/convnext_student_s0
+  output_dir: outputs/convnext_student_s2
   gpus: 16
   num_nodes: 1
   batch_size_per_device: 4
