@@ -35,6 +35,14 @@ class RuntimeConfig:
 
 
 @dataclass
+class DiagnosticsConfig:
+    enabled: bool = False
+    log_every_n_steps: int = 50
+    gradient_every_n_steps: int = 50
+    update_every_n_steps: int = 100
+
+
+@dataclass
 class EMAConfig:
     enabled: bool = True
 
@@ -45,6 +53,7 @@ class CheckpointConfig:
     save_top_k: int = 3
     save_last: bool = True
     every_n_epochs: int = 1
+    milestone_epochs: List[int] = field(default_factory=list)
 
 
 @dataclass
@@ -61,6 +70,11 @@ class DataConfig:
     split: str = "train"
     num_workers: int = 4
     use_cbgs: bool = False
+    # Version 1 preserves saved experiments; version 2 fixes RGB/depth inputs.
+    preprocessing_version: int = 1
+    correct_rgb: Optional[bool] = None
+    correct_depth: Optional[bool] = None
+    train_history_fallback: str = "previous_valid"
     key_idxes: List[int] = field(default_factory=list)
 
 
@@ -84,11 +98,14 @@ class StudentImageConfig:
     resize_limit: List[float] = field(default_factory=lambda: [0.386, 0.55])
     gradient_checkpointing: bool = False
     pretrained: bool = True
+    include_stage0: bool = False
+    pretrained_weights: str = "IMAGENET1K_V1"
     drop_path_rate: float = 0.0
 
 
 @dataclass
 class StudentConfig:
+    training_mode: str = "distillation"
     type: str = MISSING
     output_channels: int = MISSING
     temporal_kd_selection: str = MISSING
@@ -197,6 +214,10 @@ class OptimizerConfig:
     base_lr_at_global_batch_64: float = MISSING
     weight_decay: float = 0.01
     backbone_lr_mult: float = 0.5
+    param_group_policy: str = "legacy_backbone"
+    image_backbone_lr_mult: float = 0.5
+    image_backbone_weight_decay: float = 0.05
+    betas: List[float] = field(default_factory=lambda: [0.9, 0.999])
 
 
 @dataclass
@@ -225,6 +246,7 @@ class LabelDistillConfig:
     schema_version: int = MISSING
     experiment: ExperimentConfig = field(default_factory=ExperimentConfig)
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
+    diagnostics: DiagnosticsConfig = field(default_factory=DiagnosticsConfig)
     ema: EMAConfig = field(default_factory=EMAConfig)
     checkpoint: CheckpointConfig = field(default_factory=CheckpointConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)

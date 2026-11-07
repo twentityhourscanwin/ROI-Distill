@@ -1,0 +1,28 @@
+_base_: convnext_cosine36_v1.yaml
+
+experiment:
+  name: convnext_student_s0
+  description: 无教师蒸馏的ConvNeXt-B学生基线，保持v1输入，36轮图像LR倍率0.5。
+student:
+  training_mode: pure_student
+loss:
+  feature_weight: 0.0
+  response_weight: 0.0
+data:
+  preprocessing_version: 1
+  correct_rgb: false
+  correct_depth: false
+teacher:
+  checkpoint: unused
+runtime:
+  output_dir: outputs/convnext_student_s0
+  gpus: 16
+  num_nodes: 1
+  batch_size_per_device: 4
+  accumulate_grad_batches: 2
+  max_epochs: 36
+checkpoint:
+  save_top_k: 12
+  milestone_epochs: [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+diagnostics:
+  enabled: true

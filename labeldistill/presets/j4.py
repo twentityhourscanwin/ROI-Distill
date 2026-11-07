@@ -38,11 +38,31 @@ def _student_base(config):
     if config.student.type == 'camera_bevdepth_convnextb':
         from .convnextb import build_convnextb_student_base
         return build_convnextb_student_base(config)
-    if config.student.type == 'camera_bevdepth_r50':
+    if config.student.type in {'camera_bevdepth_r50', 'camera_bevdepth_r101'}:
+        backbone = deepcopy(base_exp.backbone_conf)
+        image = config.student.image
+        final_dim = tuple(map(int, image.final_size))
+        backbone['final_dim'] = final_dim
+        ida_aug = deepcopy(base_exp.ida_aug_conf)
+        ida_aug.update(
+            H=int(image.source_size[0]),
+            W=int(image.source_size[1]),
+            final_dim=final_dim,
+            resize_lim=tuple(map(float, image.resize_limit)),
+        )
+        if config.student.type == 'camera_bevdepth_r101':
+            image_backbone = backbone['img_backbone_conf']
+            image_backbone['depth'] = 101
+            image_backbone['init_cfg'] = (
+                dict(type='Pretrained', checkpoint='torchvision://resnet101')
+                if image.pretrained else None
+            )
+            if image.gradient_checkpointing:
+                image_backbone['with_cp'] = True
         return (
-            deepcopy(base_exp.backbone_conf),
+            backbone,
             deepcopy(base_exp.head_conf),
-            deepcopy(base_exp.ida_aug_conf),
+            ida_aug,
             deepcopy(base_exp.bda_aug_conf),
             deepcopy(base_exp.img_conf),
         )
@@ -101,6 +121,12 @@ def _student_configs(config):
         voxel_size=student_voxel,
         out_size_factor=STUDENT_HEAD_OUT_SIZE_FACTOR,
     )
+    # PIL supplies RGB. Keep the historical swap only for versioned replay.
+    corrected_inputs = config.data.preprocessing_version == 2
+    correct_rgb = corrected_inputs if config.data.correct_rgb is None else config.data.correct_rgb
+    correct_depth = corrected_inputs if config.data.correct_depth is None else config.data.correct_depth
+    img['to_rgb'] = not correct_rgb
+    img['depth_rasterization'] = 'nearest' if correct_depth else 'legacy'
     return backbone, head, ida_aug, bda_aug, img
 
 
@@ -215,7 +241,10 @@ def _teacher_configs(config):
 def build_j4_model_configs(config):
     """Expand a validated J4 config into concrete model constructor kwargs."""
     backbone, head, ida_aug, bda_aug, img = _student_configs(config)
-    teacher, teacher_proposal = _teacher_configs(config)
+    if config.student.training_mode == "pure_student":
+        teacher, teacher_proposal = None, None
+    else:
+        teacher, teacher_proposal = _teacher_configs(config)
     return J4ModelConfigs(
         backbone=backbone,
         head=head,

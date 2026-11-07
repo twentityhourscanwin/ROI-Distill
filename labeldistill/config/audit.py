@@ -16,6 +16,10 @@ from .validation import sha256_file
 
 
 _J4_CRITICAL_SOURCES = (
+    "labeldistill/models/pure_student.py",
+    "labeldistill/experiments/pure_student.py",
+    "labeldistill/datasets/depth_transform.py",
+    "scripts/dlc/student_pipeline.py",
     "labeldistill/exps/nuscenes/base_exp.py",
     "labeldistill/acceptance/snapshot.py",
     "labeldistill/presets/j4.py",
@@ -38,6 +42,9 @@ _J4_CRITICAL_SOURCES = (
     "labeldistill/config/run.py",
     "labeldistill/config/validation.py",
     "labeldistill/callbacks/ema.py",
+    "labeldistill/callbacks/training_diagnostics.py",
+    "labeldistill/callbacks/milestone_checkpoint.py",
+    "labeldistill/experiments/image_optimizer_groups.py",
     "tools/train.py",
     "tools/evaluate.py",
 )
