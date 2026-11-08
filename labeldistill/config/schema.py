@@ -62,7 +62,19 @@ class EvaluationConfig:
 
 
 @dataclass
+class AugmentationConfig:
+    image_enabled: bool = True
+    image_rotation: List[float] = field(default_factory=lambda: [-5.4, 5.4])
+    image_flip: bool = True
+    bev_rotation: List[float] = field(default_factory=lambda: [-22.5, 22.5])
+    bev_scale: List[float] = field(default_factory=lambda: [0.95, 1.05])
+    bev_flip_x: float = 0.5
+    bev_flip_y: float = 0.5
+
+
+@dataclass
 class DataConfig:
+    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
     dataset: str = "nuscenes"
     root: str = MISSING
     train_info: str = "nuscenes_infos_train.pkl"

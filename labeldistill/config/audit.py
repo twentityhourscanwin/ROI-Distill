@@ -29,6 +29,7 @@ _J4_CRITICAL_SOURCES = (
     "labeldistill/builders/trainer_builder.py",
     "labeldistill/experiments/j4.py",
     "labeldistill/datasets/nusc_det_dataset_lidar.py",
+    "labeldistill/datasets/nusc_det_dataset.py",
     "labeldistill/models/lidardistill.py",
     "labeldistill/models/teacher_proposal_decoder.py",
     "labeldistill/layers/heads/kd_head.py",

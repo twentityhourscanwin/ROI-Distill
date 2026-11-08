@@ -479,6 +479,30 @@ def validate_config(
     _require(config.student.output_channels > 0, "student.output_channels must be positive", errors)
     source_size = list(config.student.image.source_size)
     final_size = list(config.student.image.final_size)
+    augmentation = config.data.augmentation
+    for name in ("image_rotation", "bev_rotation", "bev_scale"):
+        limits = list(augmentation[name])
+        valid = (
+            len(limits) == 2
+            and all(math.isfinite(value) for value in limits)
+            and limits[0] <= limits[1]
+        )
+        if name == "bev_scale":
+            valid = valid and limits[0] > 0
+        _require(
+            valid,
+            f"data.augmentation.{name} must contain finite ordered bounds"
+            + (" with a positive minimum" if name == "bev_scale" else ""),
+            errors,
+        )
+    for name in ("bev_flip_x", "bev_flip_y"):
+        probability = augmentation[name]
+        _require(
+            math.isfinite(probability) and 0 <= probability <= 1,
+            f"data.augmentation.{name} must be finite and in [0, 1]",
+            errors,
+        )
+
     resize_limit = list(config.student.image.resize_limit)
     _require(
         len(source_size) == 2 and all(value > 0 for value in source_size),
@@ -492,6 +516,7 @@ def validate_config(
     )
     _require(
         len(resize_limit) == 2
+        and all(math.isfinite(value) for value in resize_limit)
         and 0 < resize_limit[0] <= resize_limit[1],
         "student.image.resize_limit must contain 0 < min <= max",
         errors,

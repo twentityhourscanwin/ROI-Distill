@@ -1,10 +1,12 @@
 _base_: convnext_cosine36_v1.yaml
 
 experiment:
-  name: convnext_student_s3
-  description: 同时修正RGB和深度栅格化的纯学生对照，36轮图像LR倍率0.5。
+  name: convnext_aug_n0
+  description: 纯学生关闭全部随机数据增强，固定图像处理与val一致。
 student:
   training_mode: pure_student
+  image:
+    resize_limit: [1.0, 1.0]
 loss:
   feature_weight: 0.0
   response_weight: 0.0
@@ -12,10 +14,18 @@ data:
   preprocessing_version: 1
   correct_rgb: true
   correct_depth: true
+  augmentation:
+    image_enabled: false
+    image_rotation: [0.0, 0.0]
+    image_flip: false
+    bev_rotation: [0.0, 0.0]
+    bev_scale: [1.0, 1.0]
+    bev_flip_x: 0.0
+    bev_flip_y: 0.0
 teacher:
   checkpoint: unused
 runtime:
-  output_dir: outputs/convnext_student_s3
+  output_dir: outputs/convnext_aug_n0
   gpus: 16
   num_nodes: 1
   batch_size_per_device: 4

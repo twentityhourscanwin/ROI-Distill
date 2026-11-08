@@ -122,6 +122,19 @@ def _student_configs(config):
         out_size_factor=STUDENT_HEAD_OUT_SIZE_FACTOR,
     )
     # PIL supplies RGB. Keep the historical swap only for versioned replay.
+    augmentation = config.data.augmentation
+    ida_aug.update(
+        enabled=augmentation.image_enabled,
+        rot_lim=tuple(augmentation.image_rotation),
+        rand_flip=augmentation.image_flip,
+    )
+    bda_aug.update(
+        rot_lim=tuple(augmentation.bev_rotation),
+        scale_lim=tuple(augmentation.bev_scale),
+        flip_dx_ratio=augmentation.bev_flip_x,
+        flip_dy_ratio=augmentation.bev_flip_y,
+    )
+
     corrected_inputs = config.data.preprocessing_version == 2
     correct_rgb = corrected_inputs if config.data.correct_rgb is None else config.data.correct_rgb
     correct_depth = corrected_inputs if config.data.correct_depth is None else config.data.correct_depth
