@@ -1,12 +1,12 @@
 _base_: convnext_cosine36_v1.yaml
 
 experiment:
-  name: convnext_aug_n0
-  description: 纯学生关闭全部随机数据增强，固定图像处理与val一致。
+  name: convnext_aug_n1
+  description: 纯学生仅启用图像小范围缩放及裁剪，其余随机增强关闭。
 student:
   training_mode: pure_student
   image:
-    resize_limit: [1.0, 1.0]
+    resize_limit: [1.0, 1.1]
 loss:
   feature_weight: 0.0
   response_weight: 0.0
@@ -15,7 +15,7 @@ data:
   correct_rgb: true
   correct_depth: true
   augmentation:
-    image_enabled: false
+    image_enabled: true
     image_rotation: [0.0, 0.0]
     image_flip: false
     bev_rotation: [0.0, 0.0]
@@ -25,7 +25,7 @@ data:
 teacher:
   checkpoint: unused
 runtime:
-  output_dir: outputs/convnext_aug_n0
+  output_dir: outputs/convnext_aug_n1
   gpus: 16
   num_nodes: 1
   batch_size_per_device: 4
