@@ -10,6 +10,9 @@ from labeldistill.presets import build_j4_model_configs
 from labeldistill.refine_head.target_assigner.adaptive_gt_scaler_v3 import (
     AdaptiveGTScalerV3,
 )
+from labeldistill.refine_head.target_assigner.proposal_center_shift import (
+    ProposalCenterShift,
+)
 from labeldistill.refine_head.target_assigner.quality_aware_mask_v3 import (
     QualityAwareMaskGeneratorV3,
 )
@@ -34,6 +37,19 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
     """Build a complete J4 LightningModule without importing legacy entries."""
     config = bundle.config
     model_configs = build_j4_model_configs(config)
+    if config.student.training_mode == 'pure_student':
+        from labeldistill.experiments.pure_student import PureStudentExperiment
+        from labeldistill.models.pure_student import PureStudent
+
+        return PureStudentExperiment(
+            config=config,
+            model=PureStudent(model_configs.backbone, model_configs.head),
+            backbone_conf=model_configs.backbone,
+            head_conf=model_configs.head,
+            ida_aug_conf=model_configs.ida_aug,
+            bda_aug_conf=model_configs.bda_aug,
+            img_conf=model_configs.img,
+        )
     checkpoint_path = Path(config.teacher.checkpoint).expanduser()
     if not checkpoint_path.is_absolute():
         checkpoint_path = bundle.project_root / checkpoint_path
@@ -76,13 +92,16 @@ def build_experiment(bundle, *, model_cls=LabelDistill,
         point_cloud_range=list(config.geometry.point_cloud_range),
         value_type=config.region.value.type,
     )
-    scaler = AdaptiveGTScalerV3(
-        mu=config.region.scaler.mu,
-        s_vel=config.region.scaler.velocity_scale,
-        r_max=config.region.scaler.max_distance,
-        class_names=class_names,
-        distance_thresholds=thresholds,
-    )
+    if config.region.scaler.type == 'proposal_center_only':
+        scaler = ProposalCenterShift()
+    else:
+        scaler = AdaptiveGTScalerV3(
+            mu=config.region.scaler.mu,
+            s_vel=config.region.scaler.velocity_scale,
+            r_max=config.region.scaler.max_distance,
+            class_names=class_names,
+            distance_thresholds=thresholds,
+        )
     small_class_ids = [
         idx for idx, name in enumerate(class_names)
         if name in SMALL_CLASS_NAMES

@@ -1,0 +1,38 @@
+_base_: convnext_cosine36_v1.yaml
+
+experiment:
+  name: convnext_aug_n3
+  description: 纯学生仅启用BEV缩放，图像处理固定，其余随机增强关闭。
+student:
+  training_mode: pure_student
+  image:
+    resize_limit: [1.0, 1.0]
+loss:
+  feature_weight: 0.0
+  response_weight: 0.0
+data:
+  preprocessing_version: 1
+  correct_rgb: true
+  correct_depth: true
+  augmentation:
+    image_enabled: false
+    image_rotation: [0.0, 0.0]
+    image_flip: false
+    bev_rotation: [0.0, 0.0]
+    bev_scale: [0.95, 1.05]
+    bev_flip_x: 0.0
+    bev_flip_y: 0.0
+teacher:
+  checkpoint: unused
+runtime:
+  output_dir: outputs/convnext_aug_n3
+  gpus: 16
+  num_nodes: 1
+  batch_size_per_device: 4
+  accumulate_grad_batches: 2
+  max_epochs: 36
+checkpoint:
+  save_top_k: 12
+  milestone_epochs: [25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36]
+diagnostics:
+  enabled: true

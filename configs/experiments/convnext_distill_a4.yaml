@@ -1,0 +1,40 @@
+_base_: convnext_cosine36_v1.yaml
+experiment:
+  name: convnext_distill_a4
+  description: A4：36轮，context256，特征蒸馏0.6，响应蒸馏1；原RGB与深度处理，完整增强。
+student:
+  training_mode: distillation
+  output_channels: 256
+data:
+  preprocessing_version: 1
+  correct_rgb: false
+  correct_depth: false
+loss:
+  feature_weight: 0.6
+  response_weight: 1.0
+runtime:
+  output_dir: outputs/convnext_distill_a4
+  gpus: 16
+  num_nodes: 1
+  batch_size_per_device: 4
+  accumulate_grad_batches: 2
+  max_epochs: 36
+checkpoint:
+  save_top_k: 3
+  every_n_epochs: 1
+  milestone_epochs:
+  - 24
+  - 25
+  - 26
+  - 27
+  - 28
+  - 29
+  - 30
+  - 31
+  - 32
+  - 33
+  - 34
+  - 35
+  - 36
+diagnostics:
+  enabled: true
