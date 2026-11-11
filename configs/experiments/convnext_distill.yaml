@@ -1,1 +1,1 @@
-_base_: convnext_distill_a2.yaml
+_base_: convnext_distill_c1.yaml
