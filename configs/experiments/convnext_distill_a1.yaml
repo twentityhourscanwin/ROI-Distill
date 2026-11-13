@@ -13,7 +13,7 @@ loss:
   feature_weight: 0.6
   response_weight: 1.0
 runtime:
-  output_dir: outputs/convnext_distill_a1
+  output_dir: /mnt/nas_data/guqiupeng/ROI_LABEL_DISTILL/outputs/convnext_distill_a1
   gpus: 16
   num_nodes: 1
   batch_size_per_device: 4

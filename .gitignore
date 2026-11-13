@@ -28,7 +28,7 @@ __pycache__/
 # 数据和输出 (重要!)
 data/
 dataset/
-outputs/
+/outputs
 
 # 第三方库
 mmdetection3d/
