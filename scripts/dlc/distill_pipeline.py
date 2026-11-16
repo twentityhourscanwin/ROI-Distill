@@ -1,4 +1,4 @@
-"""训练蒸馏模型，成功后逐轮验证第24轮起保留的普通权重。"""
+"""训练蒸馏模型，成功后逐轮验证配置中连续保留的普通权重。"""
 
 import student_pipeline as base
 
@@ -16,11 +16,14 @@ class DistillPipeline(base.StudentPipeline):
         if config['loss']['response_weight'] != 1.0:
             raise ValueError('本轮响应蒸馏系数固定为1.0')
         checkpoint = config['checkpoint']
+        milestones = checkpoint['milestone_epochs']
+        allowed_windows = (list(range(24, epochs + 1)),
+                           list(range(28, epochs + 1)))
         if (checkpoint['every_n_epochs'] != 1
                 or checkpoint['save_top_k'] == 0
-                or checkpoint['milestone_epochs'] != list(range(24, epochs + 1))):
-            raise ValueError('必须逐轮保存并保留第24轮到末轮的普通权重')
-        self.epochs = tuple(range(23, epochs))
+                or milestones not in allowed_windows):
+            raise ValueError('必须逐轮保存并保留第24或28轮到末轮的普通权重')
+        self.epochs = tuple(epoch - 1 for epoch in milestones)
 
 
 if __name__ == '__main__':

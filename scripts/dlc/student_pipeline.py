@@ -334,6 +334,7 @@ class StudentPipeline:
 
 def main(*, pipeline_class=StudentPipeline, config_name='convnext_student.yaml', description=__doc__):
     parser = argparse.ArgumentParser(description=description)
+    parser.add_argument('--config', type=Path, help='Training YAML, relative to the repository root or absolute')
     parser.add_argument('--eval-only', type=Path, help='Resume validation of an existing pipeline run')
     parser.add_argument('--run-id', help='New run identifier YYYYMMDD_HHMMSS')
     parser.add_argument('--checkpoint-root')
@@ -342,8 +343,8 @@ def main(*, pipeline_class=StudentPipeline, config_name='convnext_student.yaml',
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
     if args.eval_only:
-        if args.run_id or args.checkpoint_root:
-            parser.error('--eval-only cannot change run-id or checkpoint-root')
+        if args.config is not None or args.run_id or args.checkpoint_root:
+            parser.error('--eval-only cannot change config, run-id or checkpoint-root')
         output = args.eval_only.resolve()
         record = json.loads((output / 'pipeline.json').read_text())
         config = record['config']
@@ -353,7 +354,8 @@ def main(*, pipeline_class=StudentPipeline, config_name='convnext_student.yaml',
     else:
         from labeldistill.config import load_training_bundle
         from omegaconf import OmegaConf
-        source = root / 'configs/experiments' / config_name
+        source = args.config if args.config is not None else Path('configs/experiments') / config_name
+        source = (root / source).resolve()
         overrides = []
         if args.run_id:
             overrides.append(f'runtime.run_id={args.run_id}')

@@ -1,0 +1,11 @@
+_base_: convnext_distill_a4.yaml
+experiment:
+  name: convnext_wide_depth_s2
+  seed: 2
+  description: 下游联动加宽256并修复depth，保留原RGB，36轮cosine，seed2。
+data:
+  correct_depth: true
+runtime:
+  output_dir: /mnt/nas_data/guqiupeng/ROI_LABEL_DISTILL/outputs/convnext_wide_depth_s2
+checkpoint:
+  milestone_epochs: [28, 29, 30, 31, 32, 33, 34, 35, 36]
