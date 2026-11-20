@@ -117,22 +117,27 @@ def evaluate_group(directory, world, tokens, config, full):
         raise ValueError(f"formatted token coverage mismatch: {directory}")
     audit = {"samples": len(tokens), "results_sha256": sha256(result_path)}
     if full:
-        path = directory / "metrics_summary.json"
-        metrics = read_json(path)
-        audit.update(mAP=metrics["mean_ap"], NDS=metrics["nd_score"],
-                     tp_errors=metrics["tp_errors"], class_AP=metrics["mean_dist_aps"],
-                     metrics_sha256=sha256(path))
-        errors = audit["tp_errors"]
-        class_ap = audit["class_AP"]
-        if (set(errors) != {"trans_err", "scale_err", "orient_err", "vel_err", "attr_err"}
-                or set(class_ap) != set(config.classes.names)
-                or not all(math.isfinite(x) and x >= 0 for x in errors.values())
-                or not all(0 <= x <= 1 for x in (audit["mAP"], audit["NDS"], *class_ap.values()))):
-            raise ValueError(f"invalid official metrics: {directory}")
+        audit.update(official_metrics(directory, config))
     return audit
 
 
-def replay(cache, output, smoke, state):
+def official_metrics(directory, config):
+    path = directory / "metrics_summary.json"
+    metrics = read_json(path)
+    audit = dict(mAP=metrics["mean_ap"], NDS=metrics["nd_score"],
+                 tp_errors=metrics["tp_errors"], class_AP=metrics["mean_dist_aps"],
+                 metrics_sha256=sha256(path))
+    errors = audit["tp_errors"]
+    class_ap = audit["class_AP"]
+    if (set(errors) != {"trans_err", "scale_err", "orient_err", "vel_err", "attr_err"}
+            or set(class_ap) != set(config.classes.names)
+            or not all(math.isfinite(x) and x >= 0 for x in errors.values())
+            or not all(0 <= x <= 1 for x in (audit["mAP"], audit["NDS"], *class_ap.values()))):
+        raise ValueError(f"invalid official metrics: {directory}")
+    return audit
+
+
+def load_replay_inputs(cache, smoke):
     world, fingerprint = (2, SMOKE_DIGEST) if smoke else (16, FULL_DIGEST)
     verify_metadata(cache, world, fingerprint)
     manifest = read_json(cache / "pipeline.json")
@@ -155,11 +160,18 @@ def replay(cache, output, smoke, state):
     head = SimpleNamespace(test_cfg=head_cfg["test_cfg"],
                            num_classes=[task["num_class"] for task in head_cfg["tasks"]])
     ranks = [read_json(cache / f"rank_{i:03d}.json") for i in range(world)]
+    return summary, tokens, config, head, ranks
+
+
+def replay(cache, output, smoke, state):
+    summary, tokens, config, head, ranks = load_replay_inputs(cache, smoke)
+    world = len(ranks)
     groups = dict(COMBINATIONS)
     if smoke:
         groups["R3"] = GROUPS["R3"]
-    state.update(cache_metadata_sha256=fingerprint, checkpoint_sha256=CHECKPOINT_SHA256,
-                 source_config_sha256=SOURCE_CONFIG_SHA256, samples=len(tokens), phase="merge")
+    state.update(cache_metadata_sha256=SMOKE_DIGEST if smoke else FULL_DIGEST,
+                 checkpoint_sha256=CHECKPOINT_SHA256, source_config_sha256=SOURCE_CONFIG_SHA256,
+                 samples=len(tokens), phase="merge")
     save_json(output / "pipeline.json", state)
     merge_shards(cache, output, head, tokens, ranks, groups)
     results = {}
@@ -185,25 +197,25 @@ def replay(cache, output, smoke, state):
             "groups": results, "source_cache": str(cache), "finished_utc": now()}
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--smoke", action="store_true", help="回放已固定的八帧缓存并核对 R3")
+def run_cli(description, release_tag, name, replay_fn):
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--smoke", action="store_true", help="回放已固定的八帧缓存")
     parser.add_argument("--output-dir", type=Path, help="独占新建的输出目录")
     args = parser.parse_args()
     head = git("rev-parse", "HEAD")
-    if not args.smoke and (head != git("rev-parse", f"{RELEASE_TAG}^{{commit}}")
+    if not args.smoke and (head != git("rev-parse", f"{release_tag}^{{commit}}")
                            or git("status", "--porcelain", "--untracked-files=no")):
         parser.error("formal evaluation requires a clean tagged release")
     cache = SMOKE_CACHE if args.smoke else FULL_CACHE
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-    prefix = "e39_tta_smoke" if args.smoke else "e39_tta"
+    prefix = f"{name}_smoke" if args.smoke else name
     output = new_output(args.output_dir or OUTPUT_ROOT / f"{prefix}_{run_id}", cache)
     state = {"status": "running", "phase": "verify", "commit": head, "argv": sys.argv,
              "cwd": str(ROOT), "started_utc": now(), "cache": str(cache), "output_dir": str(output)}
     print(f"output_dir={output}", flush=True)
     try:
         save_json(output / "pipeline.json", state)
-        summary = replay(cache, output, args.smoke, state)
+        summary = replay_fn(cache, output, args.smoke, state)
         save_json(output / "summary.json", summary)
         state.update(status="complete", phase="finished", exitcode=0)
     except SystemExit as exc:
@@ -216,6 +228,10 @@ def main():
     finally:
         state["finished_utc"] = now()
         save_json(output / "pipeline.json", state)
+
+
+def main():
+    run_cli(__doc__, RELEASE_TAG, "e39_tta", replay)
 
 
 def terminate(signum, frame):
