@@ -26,7 +26,22 @@ class DistillPipeline(base.StudentPipeline):
         self.epochs = tuple(epoch - 1 for epoch in milestones)
 
 
+class TrainvalDistillPipeline(DistillPipeline):
+    """保留原训练预算和保存窗口，仅核验预先指定的第 30 轮普通权重。"""
+
+    default_config = 'convnext_wide_depth_trainval_s0.yaml'
+    training_split = 'trainval'
+    selected_epoch = 29
+
+    def _validate_config(self, config):
+        super()._validate_config(config)
+        if config['runtime']['max_epochs'] != 36 or self.selected_epoch not in self.epochs:
+            raise ValueError('Trainval requires the 36-epoch schedule and an epoch 30 checkpoint')
+        self.epochs = (self.selected_epoch,)
+
+
 if __name__ == '__main__':
     raise SystemExit(base.main(
         pipeline_class=DistillPipeline, config_name='convnext_distill.yaml', description=__doc__,
+        train_only_class=TrainvalDistillPipeline,
     ))

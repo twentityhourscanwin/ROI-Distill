@@ -1,0 +1,8 @@
+_base_: convnext_wide_depth_s0.yaml
+experiment:
+  name: convnext_wide_depth_trainval_s0
+  description: 原五帧 E37 seed0 配方合并 train 和 val 重训，取第 30 轮普通权重。
+data:
+  split: trainval
+runtime:
+  output_dir: /mnt/nas_data/guqiupeng/ROI_LABEL_DISTILL/outputs/convnext_wide_depth_trainval_s0

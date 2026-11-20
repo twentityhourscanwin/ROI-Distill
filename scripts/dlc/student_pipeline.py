@@ -67,6 +67,8 @@ class StageFailed(RuntimeError):
 
 
 class StudentPipeline:
+    training_split = 'train'
+    selected_epoch = None  # 仅训练流程固定的零基权重编号。
     epochs = tuple(range(24, 36))
     stop_timeout = 5.0
 
@@ -171,8 +173,8 @@ class StudentPipeline:
             raise ValueError(f'Expected {expected_epochs} epochs, one node, 16 GPUs x batch 4 x accumulation 2')
         if runtime.get('limit_train_batches') is not None or runtime.get('limit_test_batches') is not None:
             raise ValueError('Formal pipeline does not accept partial train/val batches')
-        if config['data'].get('split', 'train') != 'train':
-            raise ValueError('Formal validation baseline must train on the train split only')
+        if config['data'].get('split', 'train') != self.training_split:
+            raise ValueError(f'This pipeline requires the {self.training_split} split')
         if runtime.get('resume_from') is not None:
             raise ValueError('This launcher creates new training runs; use --eval-only to resume val')
         if self.eval_gpus < 1:
@@ -189,6 +191,8 @@ class StudentPipeline:
 
     def run(self, *, config, config_path, eval_only=False):
         self._validate_config(config)
+        if eval_only and self.selected_epoch is not None:
+            raise ValueError('No independent validation split in a trainval run')
         if self._git('diff', '--name-only') or self._git('diff', '--cached', '--name-only'):
             raise ValueError('Formal pipeline requires a clean tracked worktree')
         self.output = Path(config['runtime']['output_dir']).resolve()
@@ -227,6 +231,11 @@ class StudentPipeline:
                 if (self.output / 'train.exitcode').read_text().strip() != '0':
                     raise ValueError('Training has no successful exit record')
             else:
+                if self.selected_epoch is not None:
+                    data_root = self.root / config['data']['root']
+                    self.state['train_info_sha256'] = file_sha(data_root / config['data']['train_info'])
+                    self.state['val_info_sha256'] = file_sha(data_root / config['data']['val_info'])
+                    self._save()
                 argv = [self.python, '-u', 'tools/train.py', '--config', str(config_path),
                         f'runtime.run_id={config["runtime"]["run_id"]}',
                         f'runtime.output_dir={self.output}',
@@ -263,6 +272,14 @@ class StudentPipeline:
                     raise ValueError(f'Checkpoint epoch/config mismatch: {path}')
                 identities[str(epoch)] = digest
             self.state['checkpoints'] = identities
+            if self.selected_epoch is not None:
+                train_info = self.root / config['data']['root'] / config['data']['train_info']
+                if file_sha(train_info) != self.state['train_info_sha256']:
+                    raise ValueError('Training sample info changed')
+                self.state.update(status='complete', selected_checkpoint=str(
+                    checkpoint_dir / f'epoch_{self.selected_epoch}.ckpt'))
+                self._save()
+                return 0
             self._save()
             for epoch in self.epochs:
                 self._evaluate(epoch, checkpoint_dir / f'epoch_{epoch}.ckpt', saved)
@@ -332,14 +349,21 @@ class StudentPipeline:
         self._save()
 
 
-def main(*, pipeline_class=StudentPipeline, config_name='convnext_student.yaml', description=__doc__):
+def main(*, pipeline_class=StudentPipeline, config_name='convnext_student.yaml',
+         description=__doc__, train_only_class=None):
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument('--config', type=Path, help='Training YAML, relative to the repository root or absolute')
-    parser.add_argument('--eval-only', type=Path, help='Resume validation of an existing pipeline run')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--eval-only', type=Path, help='Resume validation of an existing pipeline run')
+    if train_only_class is not None:
+        mode.add_argument('--train-only', action='store_true', help='Train on train+val and verify the selected checkpoint')
     parser.add_argument('--run-id', help='New run identifier YYYYMMDD_HHMMSS')
     parser.add_argument('--checkpoint-root')
     parser.add_argument('--eval-gpus', type=int, default=16)
     args = parser.parse_args()
+    if train_only_class is not None and args.train_only:
+        pipeline_class = train_only_class
+        config_name = train_only_class.default_config
     root = Path(__file__).resolve().parents[2]
     os.chdir(root)
     if args.eval_only:
