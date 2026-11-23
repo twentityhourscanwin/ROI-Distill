@@ -72,7 +72,9 @@ def main():
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--indices")
     mode.add_argument("--full-val", action="store_true")
+    mode.add_argument("--export-test", choices=("full", "smoke"))
     args = parser.parse_args()
+    groups = {k: GROUPS[k] for k in ("B0", "A11")} if args.export_test else GROUPS
     rank = int(os.environ.get("RANK", "0"))
     world = int(os.environ.get("WORLD_SIZE", "1"))
     local_rank = int(os.environ.get("LOCAL_RANK", "0"))
@@ -92,7 +94,14 @@ def main():
     model = experiment.model.cuda().eval()
     head = model.head
     dataset = make_dataset(experiment, VIEW_SPECS["identity"])
-    indices = list(range(len(dataset))) if args.full_val else list(map(int, args.indices.split(",")))
+    if args.export_test and len(dataset) != 6008:
+        raise ValueError("expected the complete nuScenes test index")
+    if args.export_test == "smoke":
+        indices = [0, 2, 8, 40, 42, 48, 3000, 6007]
+    elif args.indices is not None:
+        indices = list(map(int, args.indices.split(",")))
+    else:
+        indices = list(range(len(dataset)))
     if not indices or len(set(indices)) != len(indices) or min(indices) < 0 or max(indices) >= len(dataset):
         raise ValueError("invalid evaluation indices")
     if args.full_val and len(indices) != 6019:
@@ -108,7 +117,7 @@ def main():
     if rank == 0:
         save_json(out / "views.json", {
             "views": {k: asdict(v) for k, v in VIEW_SPECS.items()},
-            "groups": GROUPS, "indices": indices, "tokens": expected_tokens,
+            "groups": groups, "indices": indices, "tokens": expected_tokens,
             "history_fallback": "previous_valid"})
     for view_name, view in VIEW_SPECS.items():
         started = time.perf_counter()
@@ -160,7 +169,7 @@ def main():
     for name, recs in by_view.items():
         if [rec["meta"]["token"] for rec in recs] != local_tokens:
             raise ValueError(f"cached view alignment mismatch: {name}")
-    for group_name, views in GROUPS.items():
+    for group_name, views in groups.items():
         records = []
         for pos, token in enumerate(local_tokens):
             meta = by_view["identity"][pos]["meta"]
@@ -178,7 +187,7 @@ def main():
         return
     summary = {"status": "complete", "samples": len(indices), "full_val": args.full_val,
                "groups": {}, "views": len(VIEW_SPECS), "finished_utc": None}
-    for group_name in GROUPS:
+    for group_name in groups:
         group_out = out / "groups" / group_name
         shards = [torch.load(group_out / f"rank_{i:03d}.pt",
                             map_location="cpu", weights_only=False) for i in range(world)]
