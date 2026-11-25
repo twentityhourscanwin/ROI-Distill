@@ -37,6 +37,14 @@ def restore_records(ranks, tokens, *, limit):
     return records[:len(tokens)]
 
 
+def prediction_shards(output, world_size):
+    paths = [output / f"predictions_rank_{rank}.pt" for rank in range(world_size)]
+    missing = [str(rank) for rank, path in enumerate(paths) if not path.is_file()]
+    if missing:
+        raise RuntimeError(f"incomplete predictions in {output}; missing ranks: {', '.join(missing)}")
+    return paths
+
+
 def export(config: Path, checkpoint: Path, output: Path, *,
            gpus: int, batch_size: int, workers: int, smoke: bool) -> Path:
     output = output.resolve()
@@ -47,7 +55,8 @@ def export(config: Path, checkpoint: Path, output: Path, *,
 
     tokens = read_test_tokens(INDEX, TEST_ROOT)
     command = [
-        sys.executable, "-u", str(ROOT / "scripts/dlc/evaluate_history.py"),
+        sys.executable, "-u", "-m", "torch.distributed.run", "--standalone",
+        f"--nproc_per_node={gpus}", str(ROOT / "scripts/dlc/evaluate_history.py"),
         "--history-fallback", "previous_valid", "--config", str(config.resolve()),
         "--checkpoint", str(checkpoint.resolve()), "--output-dir", str(output),
         "--prediction-only",
@@ -71,8 +80,8 @@ def export(config: Path, checkpoint: Path, output: Path, *,
         save_json(audit_path, record)
 
     ranks = []
-    for rank in range(gpus):
-        batches = torch.load(output / f"predictions_rank_{rank}.pt",
+    for shard in prediction_shards(output, gpus):
+        batches = torch.load(shard,
                              map_location="cpu", weights_only=False)
         ranks.append([record for batch in batches for record in batch])
     records = restore_records(ranks, tokens, limit=batch_size if smoke else None)
