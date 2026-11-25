@@ -1,0 +1,7 @@
+_base_: convnext_wide_depth_trainval_s0.yaml
+experiment:
+  name: convnext_wide_depth_trainval_s1
+  seed: 1
+  description: 原五帧 train+val 配方，seed 1。
+runtime:
+  output_dir: /mnt/nas_data/guqiupeng/ROI_LABEL_DISTILL/outputs/convnext_wide_depth_trainval_s1
